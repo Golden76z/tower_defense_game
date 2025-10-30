@@ -1,0 +1,88 @@
+[package]
+name = "tower_defense_game"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT OR Apache-2.0"
+description = "A 2D isometric tower defense game built with Rust"
+repository = "https://github.com/yourusername/tower_defense_game"
+readme = "README.md"
+keywords = ["game", "tower-defense", "wgpu"]
+categories = ["games"]
+
+[dependencies]
+# Graphics
+wgpu = "22.0"
+winit = "0.30"
+bytemuck = { version = "1.14", features = ["derive"] }
+
+# Math
+glam = { version = "0.28", features = ["serde"] }
+
+# Image loading
+image = "0.25"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async runtime
+pollster = "0.3"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# UI (add when needed in Phase 4)
+# egui = "0.29"
+# egui-wgpu = "0.29"
+# egui-winit = "0.29"
+
+# Audio (add when needed in Phase 5)
+# rodio = "0.19"
+
+[dev-dependencies]
+# Testing utilities
+approx = "0.5"              # For floating point comparisons
+proptest = "1.4"            # Property-based testing
+criterion = "0.5"           # Benchmarking
+mockall = "0.12"            # Mocking for tests
+
+[lib]
+name = "tower_defense_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tower_defense_game"
+path = "src/main.rs"
+
+# Benchmark configuration
+[[bench]]
+name = "rendering_bench"
+harness = false
+
+[profile.dev]
+opt-level = 1               # Slight optimization for dev
+overflow-checks = true
+
+[profile.dev.package."*"]
+opt-level = 3               # Optimize dependencies in dev
+
+[profile.release]
+opt-level = 3
+lto = true                  # Link-time optimization
+codegen-units = 1           # Better optimization, slower compile
+strip = true                # Remove debug symbols
+panic = "abort"             # Smaller binary size
+
+[profile.test]
+opt-level = 1
+
+[profile.bench]
+inherits = "release"
+
+# Feature flags for conditional compilation
+[features]
+default = []
+debug_ui = []               # Enable debug overlays
+profiling = []              # Enable performance profiling
