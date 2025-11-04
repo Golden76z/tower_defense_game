@@ -2,16 +2,13 @@
 
 A 2D isometric tower defense game built from scratch in Rust with a custom game engine.
 
-[![CI](https://github.com/yourusername/tower_defense_game/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/tower_defense_game/actions)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
-
-## 🎮 About
+## About
 
 Defend against waves of enemies by strategically placing towers, building walls, and upgrading your arsenal. Features a progression system with card-based upgrades, multiple biomes, boss battles, and an AI versus mode.
 
 **Status:** 🚧 In Development (Phase 0 - Foundation)
 
-## ✨ Features (Planned)
+## Features (Planned)
 
 - **Core Tower Defense**: Classic TD gameplay with multiple tower types
 - **Building System**: Place towers and walls with rotation support
@@ -22,7 +19,7 @@ Defend against waves of enemies by strategically placing towers, building walls,
 - **Versus AI**: 1v1 Age of War style battles against AI opponent
 - **Multiple Game Modes**: Endless mode, daily challenges, achievements
 
-## 🛠️ Built With
+## Built With
 
 - **Language**: Rust 2021 Edition
 - **Graphics**: wgpu (modern, cross-platform rendering)
@@ -30,7 +27,7 @@ Defend against waves of enemies by strategically placing towers, building walls,
 - **Math**: glam
 - **UI**: egui (planned)
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -62,7 +59,7 @@ cargo build
 cargo build --release
 ```
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Run all tests
@@ -75,7 +72,7 @@ cargo test -- --nocapture
 ./scripts/run_tests.sh
 ```
 
-## 📋 Project Structure
+## Project Structure
 
 ```
 tower_defense_game/
@@ -92,47 +89,17 @@ tower_defense_game/
 └── docs/               # Documentation
 ```
 
-<!-- ## 📖 Documentation -->
-
-<!-- - [Roadmap](ROADMAP.md) - Complete development plan -->
-<!-- - [Testing Guide](TESTING_GUIDE.md) - How to write and run tests -->
-<!-- - [Setup Checklist](SETUP_CHECKLIST.md) - Initial setup guide -->
-<!-- - [GitHub Issues](GITHUB_ISSUES.md) - Detailed task breakdown -->
-
-<!-- ## 🎯 Current Milestone -->
-<!---->
-<!-- **Phase 0: Foundation** - Setting up project structure and learning Rust basics -->
-<!---->
-<!-- See [ROADMAP.md](ROADMAP.md) for detailed phase breakdown. -->
-<!---->
-<!-- ## 🤝 Contributing -->
-<!---->
-<!-- This is a learning project, but contributions are welcome! Please: -->
-<!---->
-<!-- 1. Check the [issues](https://github.com/yourusername/tower_defense_game/issues) page -->
-<!-- 2. Comment on an issue you'd like to work on -->
-<!-- 3. Fork the repository and create a feature branch -->
-<!-- 4. Make your changes with tests -->
-<!-- 5. Submit a pull request -->
-<!---->
-<!-- See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines. -->
-
-## 📝 License
+## License
 
 This project is dual-licensed under:
 
 - MIT License ([LICENSE](LICENSE))
 
-## 🙏 Acknowledgments
-
-- Inspired by classic TD games and Vampire Survivors
-- Built with guidance from the Rust gamedev community
-- wgpu tutorial by [@sotrh](https://sotrh.github.io/learn-wgpu/)
-
-## 📬 Contact
+## Contact
 
 - **Issues**: [GitHub Issues](https://github.com/yourusername/tower_defense_game/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/yourusername/tower_defense_game/discussions)
+- **Email**: damienprouet76@gmail.com
 
 ---
 
