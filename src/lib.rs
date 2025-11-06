@@ -23,6 +23,6 @@ mod tests {
     #[test]
     fn test_library_compiles() {
         // Sanity check that the library structure is valid
-        assert!(true);
+        // assert!(true);
     }
 }

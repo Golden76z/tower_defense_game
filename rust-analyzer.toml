@@ -1,0 +1,4 @@
+checkOnSave.command = "clippy"
+checkOnSave.extraArgs = ["--no-deps"]
+cargo.allFeatures = false
+cargo.buildScripts.enable = false
