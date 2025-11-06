@@ -2,10 +2,10 @@
 name = "tower_defense_game"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Damien PROUET <damienprouet76@gmail.com>"]
 license = "MIT OR Apache-2.0"
 description = "A 2D isometric tower defense game built with Rust"
-repository = "https://github.com/yourusername/tower_defense_game"
+repository = "https://github.com/Golden76z/tower_defense_game"
 readme = "README.md"
 keywords = ["game", "tower-defense", "wgpu"]
 categories = ["games"]
