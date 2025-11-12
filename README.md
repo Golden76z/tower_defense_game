@@ -46,30 +46,53 @@ cd tower_defense_game
 # Build and run
 cargo run
 ```
-
-### Development Build
-
-```bash
-cargo build
-```
-
-### Release Build
-
-```bash
-cargo build --release
-```
-
+<!---->
+<!-- ### Development Build -->
+<!---->
+<!-- ```bash -->
+<!-- cargo build -->
+<!-- ``` -->
+<!---->
+<!-- ### Release Build -->
+<!---->
+<!-- ```bash -->
+<!-- cargo build --release -->
+<!-- ``` -->
+<!---->
 ## Testing
 
 ```bash
-# Run all tests
-cargo test
+cargo test                      # Run all tests
+cargo test --lib               # Unit tests only
+cargo test --test '*'          # Integration tests only
+cargo test --doc               # Doc tests only
+cargo test test_name           # Specific test
+cargo test -- --nocapture      # Show println! output
+cargo test -- --test-threads=1 # Run serially
+```
 
-# Run with output
-cargo test -- --nocapture
+### Coverage
+```bash
+cargo tarpaulin --out Html
+```
 
-# Use the test script
-./scripts/run_tests.sh
+### Benchmarking
+
+```bash
+cargo bench
+cargo bench bench_name
+```
+
+### Linting & Formatting
+```bash
+cargo fmt
+cargo clippy
+cargo clippy --fix
+```
+
+### Scripts
+```bash
+bash scripts/run_tests.sh         # Full test suite
 ```
 
 ## Project Structure

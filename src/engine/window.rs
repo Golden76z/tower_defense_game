@@ -1,41 +1,31 @@
-use winit::{
-    application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
-    window::Window,
-};
+use std::sync::Arc;
+use winit::window::Window;
 
-#[derive(Default)]
-pub struct App {
-    window: Option<Window>,
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+// This will store the state of our game
+pub struct State {
+    window: Arc<Window>,
 }
 
-impl ApplicationHandler for App {
-    // Method called when the App is active (& resumed for mobile)
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        // Create window when app becomes active
-        let window = event_loop.create_window(Window::default_attributes()).unwrap();
-
-        // Storing the window in our App
-        self.window = Some(window);
+impl State {
+    // We don't need this to be async right now,
+    // but we will in the next tutorial
+    pub async fn new(window: Arc<Window>) -> anyhow::Result<Self> {
+        Ok(Self {
+            window,
+        })
     }
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        _id: winit::window::WindowId,
-        event: WindowEvent,
-    ) {
-        match event {
-            WindowEvent::CloseRequested => {
-                println!("The close button was pressed; stopping");
-                event_loop.exit();
-            }
-            WindowEvent::RedrawRequested => {
-                println!("Redrawing game frame");
+    pub fn resize(&mut self, _width: u32, _height: u32) {
+        // We'll do stuff here in the next tutorial
+    }
+    
+    pub fn render(&mut self) {
+        self.window.request_redraw();
 
-                // Request next redraw
-                self.window.as_ref().unwrap().request_redraw();
-            }
-            _ => (),
-        }
+        // We'll do more stuff here in the next tutorial
     }
 }
+

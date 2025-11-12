@@ -12,7 +12,7 @@ categories = ["games"]
 
 [dependencies]
 # Graphics
-wgpu = "27.0.0"
+wgpu = "27.0.1"
 winit = { version = "0.30", features = ["android-native-activity"] }
 bytemuck = { version = "1.14", features = ["derive"] }
 
@@ -32,6 +32,7 @@ pollster = "0.3"
 # Logging
 log = "0.4"
 env_logger = "0.11"
+anyhow = "1.0.100"
 
 # UI (add when needed in Phase 4)
 # egui = "0.29"
@@ -49,6 +50,7 @@ criterion = "0.5"           # Benchmarking
 mockall = "0.12"            # Mocking for tests
 
 [lib]
+crate-type = ["cdylib", "rlib"]
 name = "tower_defense_lib"
 path = "src/lib.rs"
 
@@ -86,3 +88,19 @@ inherits = "release"
 default = []
 debug_ui = []               # Enable debug overlays
 profiling = []              # Enable performance profiling
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.6"
+console_log = "1.0"
+wgpu = { version = "27.0.0", features = ["webgl"]}
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4.30"
+web-sys = { version = "0.3", features = [
+    "Document",
+    "Window",
+    "Element",
+]}
+
+ 
+
+ 
