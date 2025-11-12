@@ -12,8 +12,8 @@ categories = ["games"]
 
 [dependencies]
 # Graphics
-wgpu = "22.0"
-winit = "0.30"
+wgpu = "27.0.0"
+winit = { version = "0.30", features = ["android-native-activity"] }
 bytemuck = { version = "1.14", features = ["derive"] }
 
 # Math
