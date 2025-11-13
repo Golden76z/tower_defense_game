@@ -5,6 +5,14 @@ fn main() {
     let _ = run().expect("Error running the game loop");
 }
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    run().unwrap_throw();
+
+    Ok(())
+}
 
 pub fn run() -> anyhow::Result<()> {
     // Application

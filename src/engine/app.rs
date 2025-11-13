@@ -1,6 +1,12 @@
-use std::sync::Arc;
-use winit::{application::ApplicationHandler, event::{KeyEvent, WindowEvent}, event_loop::ActiveEventLoop, keyboard::{KeyCode, PhysicalKey}, window::Window};
 use crate::engine::window::State;
+use std::sync::Arc;
+use winit::{
+    application::ApplicationHandler,
+    event::{KeyEvent, WindowEvent},
+    event_loop::ActiveEventLoop,
+    keyboard::{KeyCode, PhysicalKey},
+    window::Window,
+};
 
 pub struct App {
     #[cfg(target_arch = "wasm32")]
@@ -20,7 +26,6 @@ impl App {
     }
 }
 
-
 impl ApplicationHandler<State> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         #[allow(unused_mut)]
@@ -30,7 +35,7 @@ impl ApplicationHandler<State> for App {
         {
             use wasm_bindgen::JsCast;
             use winit::platform::web::WindowAttributesExtWebSys;
-            
+
             const CANVAS_ID: &str = "canvas";
 
             let window = wgpu::web_sys::window().unwrap_throw();
@@ -45,7 +50,7 @@ impl ApplicationHandler<State> for App {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // If we are not on web we can use pollster to
-            // await the 
+            // await the
             self.state = Some(pollster::block_on(State::new(window)).unwrap());
         }
 
@@ -56,11 +61,7 @@ impl ApplicationHandler<State> for App {
             if let Some(proxy) = self.proxy.take() {
                 wasm_bindgen_futures::spawn_local(async move {
                     assert!(proxy
-                        .send_event(
-                            State::new(window)
-                                .await
-                                .expect("Unable to create canvas!!!")
-                        )
+                        .send_event(State::new(window).await.expect("Unable to create canvas!!!"))
                         .is_ok())
                 });
             }
@@ -94,27 +95,45 @@ impl ApplicationHandler<State> for App {
         };
 
         match event {
+            // Clicking on the close button
             WindowEvent::CloseRequested => event_loop.exit(),
+
+            // Event resizing the window
             WindowEvent::Resized(size) => state.resize(size.width, size.height),
+
             WindowEvent::RedrawRequested => {
-                state.render();
+                state.update();
+                match state.render() {
+                    Ok(_) => {}
+                    // Reconfigure the surface if it's lost or outdated
+                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        let size = state.window.inner_size();
+                        state.resize(size.width, size.height);
+                    }
+                    Err(e) => {
+                        log::error!("Unable to render {}", e);
+                    }
+                }
             }
+
+            // Keyboard input event
             WindowEvent::KeyboardInput {
                 event:
-                KeyEvent {
-                    physical_key: PhysicalKey::Code(code),
-                    state: key_state,
-                    ..
-                },
+                    KeyEvent {
+                        physical_key: PhysicalKey::Code(code),
+                        state: key_state,
+                        ..
+                    },
                 ..
             } => match (code, key_state.is_pressed()) {
-                (KeyCode::KeyA, true) => event_loop.exit(),
+                // Exit the programm when pressing Escape key
+                (KeyCode::Escape, true) => event_loop.exit(),
                 _ => {
-                    println!("No key pressed");
+                    // Any other key pressed
                 }
             },
             _ => {
-                println!("test");
+                // Any other event
             }
         }
     }
