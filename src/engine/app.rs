@@ -128,6 +128,24 @@ impl ApplicationHandler<State> for App {
             } => match (code, key_state.is_pressed()) {
                 // Exit the programm when pressing Escape key
                 (KeyCode::Escape, true) => event_loop.exit(),
+                (KeyCode::KeyR, true) => { 
+                    state.window.request_inner_size(winit::dpi::LogicalSize::new(1200, 1000))
+                        .expect("Failed to resize window");
+                    state.window.request_redraw();
+                    // state.resize(1200, 1000);
+                    // println!("Resizing the window");
+                    let size = state.window.inner_size();
+                    println!("Window size - width: {:?}, height: {:?}", size.width, size.height);
+                },
+                (KeyCode::KeyF, true) => { 
+                    if state.window.fullscreen().is_some() {
+                        state.window.set_fullscreen(None);
+                        println!("Exited fullscreen");
+                    } else {
+                        state.window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+                        println!("Entered fullscreen");
+                    }
+                },
                 _ => {
                     // Any other key pressed
                 }
