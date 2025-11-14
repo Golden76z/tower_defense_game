@@ -128,28 +128,63 @@ impl ApplicationHandler<State> for App {
             } => match (code, key_state.is_pressed()) {
                 // Exit the programm when pressing Escape key
                 (KeyCode::Escape, true) => event_loop.exit(),
-                (KeyCode::KeyR, true) => { 
-                    state.window.request_inner_size(winit::dpi::LogicalSize::new(1200, 1000))
+
+                // Resizing the window
+                (KeyCode::KeyR, true) => {
+                    // Resizing the window
+                    state
+                        .window
+                        .request_inner_size(winit::dpi::LogicalSize::new(1200, 1000))
                         .expect("Failed to resize window");
+
+                    // Request a redraw after resizing
                     state.window.request_redraw();
-                    // state.resize(1200, 1000);
-                    // println!("Resizing the window");
+
+                    // Checking the modified width and height
                     let size = state.window.inner_size();
-                    println!("Window size - width: {:?}, height: {:?}", size.width, size.height);
-                },
-                (KeyCode::KeyF, true) => { 
+                    println!(
+                        "Window size - width: {:?}, height: {:?}",
+                        size.width, size.height
+                    );
+                }
+
+                // Toggle fullscreen
+                (KeyCode::KeyF, true) => {
                     if state.window.fullscreen().is_some() {
                         state.window.set_fullscreen(None);
                         println!("Exited fullscreen");
                     } else {
-                        state.window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+                        state
+                            .window
+                            .set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
                         println!("Entered fullscreen");
                     }
-                },
+                }
                 _ => {
                     // Any other key pressed
                 }
             },
+            
+            // Listening for the mouse movements
+            WindowEvent::CursorMoved { device_id, position } => {
+                if let Some(state_ref) = &mut self.state {
+                    // Normalize coordinates to 0.0-1.0 range based on window size
+                    let window_size = state_ref.window.inner_size();
+                    let normalized_x = (position.x / window_size.width as f64) as f64;
+                    let normalized_y = (position.y / window_size.height as f64) as f64;
+
+                    // Update color based on cursor position
+                    state_ref.color = wgpu::Color {
+                        r: normalized_x,
+                        g: 0.2,
+                        b: normalized_y,
+                        a: 1.0,
+                    };
+
+                    println!("Updated color - R: {:.2}, B: {:.2}", normalized_x, normalized_y);
+                }
+            }
+
             _ => {
                 // Any other event
             }
