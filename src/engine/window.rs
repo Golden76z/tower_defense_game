@@ -11,6 +11,7 @@ pub struct State {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
+    render_pipeline: wgpu::RenderPipeline,
     pub window: Arc<Window>,
     pub color: wgpu::Color,
 }
@@ -81,12 +82,80 @@ impl State {
         // Configure the surface - THIS IS IMPORTANT!
         surface.configure(&device, &config);
 
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shader.wgsl").into()),
+        });
+
+        let render_pipeline_layout =
+        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                // Function inside the shader that is the entry_point. These are the functions we marked with @vertex and @fragment
+                entry_point: Some("vs_main"),
+                // What type of vertice we want to pass to the vertex shader 
+                // (we specified it in the shader itself)
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            // Optionnal so we wrap it into Some() - Storing color data to the surface
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState { // 4.
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            
+            primitive: wgpu::PrimitiveState {
+                // TriangleList means that every three vertices will correspond to one triangle.
+                topology: wgpu::PrimitiveTopology::TriangleList, // 1.
+                strip_index_format: None,
+                // Determine whether a given triangle is facing forward or not.
+                // FrontFace::Ccw means that a triangle is facing forward if the vertices are arranged in a counter-clockwise direction
+                front_face: wgpu::FrontFace::Ccw, // 2.
+                cull_mode: Some(wgpu::Face::Back),
+                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                polygon_mode: wgpu::PolygonMode::Fill,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+
+            depth_stencil: None, // 1.
+            multisample: wgpu::MultisampleState {
+                // How many sample the pipeline will use (more than 1 is complex)
+                count: 1,
+                // mask specifies which samples should be active. In this case, we are using all of them.
+                mask: !0,
+                // alpha_to_coverage_enabled has to do with anti-aliasing. We're not covering anti-aliasing here, so we'll leave this as false now.
+                alpha_to_coverage_enabled: false,
+            },
+            // multiview indicates how many array layers the render attachments can have. We won't be rendering to array textures, so we can set this to None.
+            multiview: None,
+            // cache allows wgpu to cache shader compilation data. Only really useful for Android build targets.
+            cache: None,
+        });
+
         Ok(Self {
             surface,
             device,
             queue,
             config,
             is_surface_configured: true,
+            render_pipeline,
             window,
             color: wgpu::Color {
                 r: 1.0,
@@ -127,7 +196,7 @@ impl State {
         });
 
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -142,8 +211,12 @@ impl State {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+
+            render_pass.set_pipeline(&self.render_pipeline); // 2.
+            render_pass.draw(0..3, 0..1); // 3.
         }
 
+        
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();

@@ -166,7 +166,7 @@ impl ApplicationHandler<State> for App {
             },
             
             // Listening for the mouse movements
-            WindowEvent::CursorMoved { device_id, position } => {
+            WindowEvent::CursorMoved { position, .. } => {
                 if let Some(state_ref) = &mut self.state {
                     // Normalize coordinates to 0.0-1.0 range based on window size
                     let window_size = state_ref.window.inner_size();
