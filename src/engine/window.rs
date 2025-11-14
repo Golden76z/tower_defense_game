@@ -12,6 +12,7 @@ pub struct State {
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
     pub window: Arc<Window>,
+    pub color: wgpu::Color,
 }
 
 impl State {
@@ -87,6 +88,12 @@ impl State {
             config,
             is_surface_configured: true,
             window,
+            color: wgpu::Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 1.0,
+            }
         })
     }
 
@@ -126,12 +133,7 @@ impl State {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.9,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(self.color),
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
