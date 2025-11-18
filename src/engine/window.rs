@@ -88,11 +88,11 @@ impl State {
         });
 
         let render_pipeline_layout =
-        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
-            push_constant_ranges: &[],
-        });
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
@@ -101,7 +101,7 @@ impl State {
                 module: &shader,
                 // Function inside the shader that is the entry_point. These are the functions we marked with @vertex and @fragment
                 entry_point: Some("vs_main"),
-                // What type of vertice we want to pass to the vertex shader 
+                // What type of vertice we want to pass to the vertex shader
                 // (we specified it in the shader itself)
                 buffers: &[],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -110,14 +110,15 @@ impl State {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState { // 4.
+                targets: &[Some(wgpu::ColorTargetState {
+                    // 4.
                     format: config.format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            
+
             primitive: wgpu::PrimitiveState {
                 // TriangleList means that every three vertices will correspond to one triangle.
                 topology: wgpu::PrimitiveTopology::TriangleList, // 1.
@@ -162,7 +163,7 @@ impl State {
                 g: 1.0,
                 b: 1.0,
                 a: 1.0,
-            }
+            },
         })
     }
 
@@ -216,7 +217,6 @@ impl State {
             render_pass.draw(0..3, 0..1); // 3.
         }
 
-        
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();

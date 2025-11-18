@@ -160,18 +160,21 @@ impl ApplicationHandler<State> for App {
                         println!("Entered fullscreen");
                     }
                 }
+
+                // Toggle triangle color
+
                 _ => {
                     // Any other key pressed
                 }
             },
-            
+
             // Listening for the mouse movements
             WindowEvent::CursorMoved { position, .. } => {
                 if let Some(state_ref) = &mut self.state {
                     // Normalize coordinates to 0.0-1.0 range based on window size
                     let window_size = state_ref.window.inner_size();
-                    let normalized_x = (position.x / window_size.width as f64) as f64;
-                    let normalized_y = (position.y / window_size.height as f64) as f64;
+                    let normalized_x = position.x / window_size.width as f64;
+                    let normalized_y = position.y / window_size.height as f64;
 
                     // Update color based on cursor position
                     state_ref.color = wgpu::Color {
@@ -181,7 +184,10 @@ impl ApplicationHandler<State> for App {
                         a: 1.0,
                     };
 
-                    println!("Updated color - R: {:.2}, B: {:.2}", normalized_x, normalized_y);
+                    println!(
+                        "Updated color - R: {:.2}, B: {:.2}",
+                        normalized_x, normalized_y
+                    );
                 }
             }
 
