@@ -162,6 +162,7 @@ impl ApplicationHandler<State> for App {
                 }
 
                 // Toggle triangle color
+                (KeyCode::Space, true) => {}
 
                 _ => {
                     // Any other key pressed

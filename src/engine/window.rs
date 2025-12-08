@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use wgpu::util::DeviceExt;
 use winit::window::Window;
 
 #[cfg(target_arch = "wasm32")]
@@ -12,9 +13,33 @@ pub struct State {
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
     render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
     pub window: Arc<Window>,
+    num_vertices: u32,
     pub color: wgpu::Color,
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+const VERTICES: &[Vertex] = &[
+    Vertex {
+        position: [0.0, 0.5, 0.0],
+        color: [1.0, 1.0, 0.0],
+    }, // Top vertex FAR
+    Vertex {
+        position: [-0.5, -0.5, 0.0],
+        color: [0.0, 1.0, 1.0],
+    }, // Bottom-left normal
+    Vertex {
+        position: [0.5, -0.5, 0.0],
+        color: [1.0, 0.0, 1.0],
+    }, // Bottom-right normal
+];
 
 impl State {
     pub async fn new(window: Arc<Window>) -> anyhow::Result<State> {
@@ -103,7 +128,7 @@ impl State {
                 entry_point: Some("vs_main"),
                 // What type of vertice we want to pass to the vertex shader
                 // (we specified it in the shader itself)
-                buffers: &[],
+                buffers: &[Vertex::desc()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             // Optionnal so we wrap it into Some() - Storing color data to the surface
@@ -150,6 +175,15 @@ impl State {
             cache: None,
         });
 
+        // new()
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let num_vertices = VERTICES.len() as u32;
+
         Ok(Self {
             surface,
             device,
@@ -157,7 +191,9 @@ impl State {
             config,
             is_surface_configured: true,
             render_pipeline,
+            vertex_buffer,
             window,
+            num_vertices,
             color: wgpu::Color {
                 r: 1.0,
                 g: 1.0,
@@ -214,7 +250,8 @@ impl State {
             });
 
             render_pass.set_pipeline(&self.render_pipeline); // 2.
-            render_pass.draw(0..3, 0..1); // 3.
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.draw(0..self.num_vertices, 0..1); // 3.
         }
 
         // submit will accept anything that implements IntoIter
@@ -222,5 +259,27 @@ impl State {
         output.present();
 
         Ok(())
+    }
+}
+
+// lib.rs
+impl Vertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+            ],
+        }
     }
 }
