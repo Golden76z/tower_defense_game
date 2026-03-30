@@ -28,15 +28,15 @@ struct Vertex {
 
 const VERTICES: &[Vertex] = &[
     Vertex {
-        position: [0.0, 0.5, 0.0],
+        position: [0.0, 0.5, 0.2],
         color: [1.0, 1.0, 0.0],
     }, // Top vertex FAR
     Vertex {
-        position: [-0.5, -0.5, 0.0],
+        position: [-0.5, -0.5, 0.8],
         color: [0.0, 1.0, 1.0],
     }, // Bottom-left normal
     Vertex {
-        position: [0.5, -0.5, 0.0],
+        position: [0.5, -0.9, 1.0],
         color: [1.0, 0.0, 1.0],
     }, // Bottom-right normal
 ];
