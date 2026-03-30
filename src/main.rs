@@ -2,7 +2,7 @@ use tower_defense_lib::engine::app::App;
 use winit::event_loop::EventLoop;
 
 fn main() {
-    let _ = run().expect("Error running the game loop");
+    run().expect("Error running the game loop");
 }
 
 #[cfg(target_arch = "wasm32")]
