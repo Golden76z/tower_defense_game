@@ -1,6 +1,8 @@
-# Tower Defense Game
+# Isoguard (Tower Defense Game)
 
-A 2D isometric tower defense game built from scratch in Rust with a custom game engine.
+A 3D isometric tower defense game built from scratch in Rust with a custom game engine.
+
+> **Design Note:** The project was originally planned as a 2D isometric game, but we are pivoting to use **3D objects** with an isometric camera/projection. This supports 3D meshes, dynamic lighting, and camera rotations while maintaining the classic isometric styling.
 
 ## About
 
