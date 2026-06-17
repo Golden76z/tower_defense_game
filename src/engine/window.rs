@@ -107,6 +107,7 @@ impl State {
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
             self.is_surface_configured = true;
+            self.renderer.resize(&self.config, &self.queue);
         }
     }
 

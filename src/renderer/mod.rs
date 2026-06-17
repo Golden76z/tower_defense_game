@@ -1,3 +1,4 @@
+use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -28,25 +29,77 @@ impl Vertex {
     }
 }
 
+// 3D vertices lying flat on the X-Z ground plane
 const VERTICES: &[Vertex] = &[
     Vertex {
-        position: [0.0, 0.5, 0.2],
-        color: [1.0, 1.0, 0.0],
-    }, // Top vertex FAR
+        position: [0.0, 0.0, 0.5],
+        color: [1.0, 0.5, 0.0], // Vibrant Orange/Red
+    },
     Vertex {
-        position: [-0.5, -0.5, 0.8],
-        color: [0.0, 1.0, 1.0],
-    }, // Bottom-left normal
+        position: [-0.5, 0.0, -0.5],
+        color: [0.5, 0.0, 1.0], // Purple/Violet
+    },
     Vertex {
-        position: [0.5, -0.9, 1.0],
-        color: [1.0, 0.0, 1.0],
-    }, // Bottom-right normal
+        position: [0.5, 0.0, -0.5],
+        color: [0.0, 0.5, 1.0], // Electric Blue
+    },
 ];
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CameraUniform {
+    pub view_proj: [[f32; 4]; 4],
+}
+
+impl Default for CameraUniform {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CameraUniform {
+    pub fn new() -> Self {
+        Self {
+            view_proj: Mat4::IDENTITY.to_cols_array_2d(),
+        }
+    }
+
+    pub fn update_view_proj(&mut self, view_proj: Mat4) {
+        self.view_proj = view_proj.to_cols_array_2d();
+    }
+}
+
+// Helper function to compute the 3D isometric view-projection matrix
+fn compute_isometric_view_proj(width: u32, height: u32) -> Mat4 {
+    // Look at origin (0,0,0) from direction (2, 2, 2)
+    let eye = Vec3::new(2.0, 2.0, 2.0);
+    let target = Vec3::ZERO;
+    let up = Vec3::Y;
+    let view = Mat4::look_at_rh(eye, target, up);
+
+    // Parallel orthographic projection for classic isometric look
+    // Scale orthographic width according to aspect ratio to prevent stretching
+    let aspect = width as f32 / height as f32;
+    let ortho_height = 2.0;
+    let ortho_width = ortho_height * aspect;
+    let proj = Mat4::orthographic_rh(
+        -ortho_width / 2.0,
+        ortho_width / 2.0,
+        -ortho_height / 2.0,
+        ortho_height / 2.0,
+        -10.0,
+        10.0,
+    );
+
+    proj * view
+}
 
 pub struct Renderer {
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     num_vertices: u32,
+    camera_buffer: wgpu::Buffer,
+    camera_bind_group: wgpu::BindGroup,
 }
 
 impl Renderer {
@@ -57,11 +110,47 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("../shader.wgsl").into()),
         });
 
-        // Create pipeline layout
+        // Initialize camera uniform & buffer
+        let mut camera_uniform = CameraUniform::new();
+        let view_proj = compute_isometric_view_proj(config.width, config.height);
+        camera_uniform.update_view_proj(view_proj);
+
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Create camera bind group layout
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("camera_bind_group_layout"),
+            });
+
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+            label: Some("camera_bind_group"),
+        });
+
+        // Create pipeline layout containing the camera bind group layout
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
+                bind_group_layouts: &[&camera_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -117,7 +206,20 @@ impl Renderer {
             render_pipeline,
             vertex_buffer,
             num_vertices,
+            camera_buffer,
+            camera_bind_group,
         }
+    }
+
+    pub fn resize(&mut self, config: &wgpu::SurfaceConfiguration, queue: &wgpu::Queue) {
+        let view_proj = compute_isometric_view_proj(config.width, config.height);
+        let mut camera_uniform = CameraUniform::new();
+        camera_uniform.update_view_proj(view_proj);
+        queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[camera_uniform]),
+        );
     }
 
     pub fn render(
@@ -149,6 +251,7 @@ impl Renderer {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.draw(0..self.num_vertices, 0..1);
         }
