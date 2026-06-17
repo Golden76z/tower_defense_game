@@ -138,10 +138,8 @@ impl ApplicationHandler<State> for App {
                 // Resizing the window
                 (KeyCode::KeyR, true) => {
                     // Resizing the window
-                    state
-                        .window
-                        .request_inner_size(winit::dpi::LogicalSize::new(1200, 1000))
-                        .expect("Failed to resize window");
+                    let _ =
+                        state.window.request_inner_size(winit::dpi::LogicalSize::new(1200, 1000));
 
                     // Request a redraw after resizing
                     state.window.request_redraw();
