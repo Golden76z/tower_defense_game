@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use wgpu::util::DeviceExt;
 use winit::window::Window;
 
 #[cfg(target_arch = "wasm32")]
@@ -12,34 +11,10 @@ pub struct State {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
-    render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
+    renderer: crate::renderer::Renderer,
     pub window: Arc<Window>,
-    num_vertices: u32,
     pub color: wgpu::Color,
 }
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    color: [f32; 3],
-}
-
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [0.0, 0.5, 0.2],
-        color: [1.0, 1.0, 0.0],
-    }, // Top vertex FAR
-    Vertex {
-        position: [-0.5, -0.5, 0.8],
-        color: [0.0, 1.0, 1.0],
-    }, // Bottom-left normal
-    Vertex {
-        position: [0.5, -0.9, 1.0],
-        color: [1.0, 0.0, 1.0],
-    }, // Bottom-right normal
-];
 
 impl State {
     pub async fn new(window: Arc<Window>) -> anyhow::Result<State> {
@@ -107,82 +82,7 @@ impl State {
         // Configure the surface - THIS IS IMPORTANT!
         surface.configure(&device, &config);
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../shader.wgsl").into()),
-        });
-
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
-                push_constant_ranges: &[],
-            });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                // Function inside the shader that is the entry_point. These are the functions we marked with @vertex and @fragment
-                entry_point: Some("vs_main"),
-                // What type of vertice we want to pass to the vertex shader
-                // (we specified it in the shader itself)
-                buffers: &[Vertex::desc()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            // Optionnal so we wrap it into Some() - Storing color data to the surface
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    // 4.
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-
-            primitive: wgpu::PrimitiveState {
-                // TriangleList means that every three vertices will correspond to one triangle.
-                topology: wgpu::PrimitiveTopology::TriangleList, // 1.
-                strip_index_format: None,
-                // Determine whether a given triangle is facing forward or not.
-                // FrontFace::Ccw means that a triangle is facing forward if the vertices are arranged in a counter-clockwise direction
-                front_face: wgpu::FrontFace::Ccw, // 2.
-                cull_mode: Some(wgpu::Face::Back),
-                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
-                polygon_mode: wgpu::PolygonMode::Fill,
-                // Requires Features::DEPTH_CLIP_CONTROL
-                unclipped_depth: false,
-                // Requires Features::CONSERVATIVE_RASTERIZATION
-                conservative: false,
-            },
-
-            depth_stencil: None, // 1.
-            multisample: wgpu::MultisampleState {
-                // How many sample the pipeline will use (more than 1 is complex)
-                count: 1,
-                // mask specifies which samples should be active. In this case, we are using all of them.
-                mask: !0,
-                // alpha_to_coverage_enabled has to do with anti-aliasing. We're not covering anti-aliasing here, so we'll leave this as false now.
-                alpha_to_coverage_enabled: false,
-            },
-            // multiview indicates how many array layers the render attachments can have. We won't be rendering to array textures, so we can set this to None.
-            multiview: None,
-            // cache allows wgpu to cache shader compilation data. Only really useful for Android build targets.
-            cache: None,
-        });
-
-        // new()
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let num_vertices = VERTICES.len() as u32;
+        let renderer = crate::renderer::Renderer::new(&device, &config);
 
         Ok(Self {
             surface,
@@ -190,10 +90,8 @@ impl State {
             queue,
             config,
             is_surface_configured: true,
-            render_pipeline,
-            vertex_buffer,
+            renderer,
             window,
-            num_vertices,
             color: wgpu::Color {
                 r: 1.0,
                 g: 1.0,
@@ -228,58 +126,12 @@ impl State {
 
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
+        self.renderer.render(&view, &self.device, &self.queue, self.color)?;
 
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(self.color),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-
-            render_pass.set_pipeline(&self.render_pipeline); // 2.
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.draw(0..self.num_vertices, 0..1); // 3.
-        }
-
-        // submit will accept anything that implements IntoIter
-        self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())
     }
 }
 
-// lib.rs
-impl Vertex {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-            ],
-        }
-    }
-}
+// Removed Vertex implementation (moved to renderer module)
