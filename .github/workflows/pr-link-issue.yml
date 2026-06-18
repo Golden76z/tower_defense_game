@@ -1,0 +1,47 @@
+name: Auto Link Issue to PR
+
+on:
+  pull_request:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  link-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse Issue from Branch Name and Update PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branchName = context.payload.pull_request.head.ref;
+            const prBody = context.payload.pull_request.body || '';
+            
+            // Try to find a pattern like 16-something or issue-16-something at the beginning of the branch name
+            const match = branchName.match(/^(?:issue-)?(\d+)/i);
+            if (!match) {
+              console.log(`No issue number found at the start of branch name: ${branchName}`);
+              return;
+            }
+            
+            const issueNumber = match[1];
+            const closingKeyword = `Closes #${issueNumber}`;
+            
+            // Check if the issue is already linked in the PR body
+            if (prBody.includes(closingKeyword) || prBody.match(new RegExp(`closes\\s+#${issueNumber}`, 'i'))) {
+              console.log(`Issue #${issueNumber} is already linked in the PR description.`);
+              return;
+            }
+            
+            const newBody = prBody 
+              ? `${prBody}\n\n---\n\n${closingKeyword}` 
+              : closingKeyword;
+              
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              body: newBody,
+            });
+            console.log(`Successfully added '${closingKeyword}' to PR #${context.payload.pull_request.number}`);

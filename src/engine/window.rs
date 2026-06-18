@@ -14,6 +14,7 @@ pub struct State {
     renderer: crate::renderer::Renderer,
     pub window: Arc<Window>,
     pub color: wgpu::Color,
+    pub time: crate::engine::time::Time,
 }
 
 impl State {
@@ -98,6 +99,7 @@ impl State {
                 b: 1.0,
                 a: 1.0,
             },
+            time: crate::engine::time::Time::new(),
         })
     }
 
@@ -112,7 +114,7 @@ impl State {
     }
 
     pub fn update(&mut self) {
-        // remove `todo!()`
+        self.time.update();
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {

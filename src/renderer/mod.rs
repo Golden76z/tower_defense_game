@@ -36,12 +36,12 @@ const VERTICES: &[Vertex] = &[
         color: [1.0, 0.5, 0.0], // Vibrant Orange/Red
     },
     Vertex {
-        position: [-0.5, 0.0, -0.5],
-        color: [0.5, 0.0, 1.0], // Purple/Violet
-    },
-    Vertex {
         position: [0.5, 0.0, -0.5],
         color: [0.0, 0.5, 1.0], // Electric Blue
+    },
+    Vertex {
+        position: [-0.5, 0.0, -0.5],
+        color: [0.5, 0.0, 1.0], // Purple/Violet
     },
 ];
 
