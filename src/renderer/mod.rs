@@ -1,3 +1,4 @@
+pub mod sprite;
 pub mod texture;
 
 use glam::{Mat4, Vec3};
