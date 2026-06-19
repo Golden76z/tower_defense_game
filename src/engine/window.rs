@@ -83,7 +83,7 @@ impl State {
         // Configure the surface - THIS IS IMPORTANT!
         surface.configure(&device, &config);
 
-        let renderer = crate::renderer::Renderer::new(&device, &config);
+        let renderer = crate::renderer::Renderer::new(&device, &queue, &config);
 
         Ok(Self {
             surface,

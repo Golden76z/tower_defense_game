@@ -7,7 +7,7 @@ use wgpu::util::DeviceExt;
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
     pub position: [f32; 3],
-    pub color: [f32; 3],
+    pub tex_coords: [f32; 2],
 }
 
 impl Vertex {
@@ -24,26 +24,26 @@ impl Vertex {
                 wgpu::VertexAttribute {
                     offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x3,
+                    format: wgpu::VertexFormat::Float32x2,
                 },
             ],
         }
     }
 }
 
-// 3D vertices lying flat on the X-Z ground plane
+// 3D vertices lying flat on the X-Z ground plane with UV coordinates
 const VERTICES: &[Vertex] = &[
     Vertex {
         position: [0.0, 0.0, 0.5],
-        color: [1.0, 0.5, 0.0], // Vibrant Orange/Red
+        tex_coords: [0.5, 0.0],
     },
     Vertex {
         position: [0.5, 0.0, -0.5],
-        color: [0.0, 0.5, 1.0], // Electric Blue
+        tex_coords: [1.0, 1.0],
     },
     Vertex {
         position: [-0.5, 0.0, -0.5],
-        color: [0.5, 0.0, 1.0], // Purple/Violet
+        tex_coords: [0.0, 1.0],
     },
 ];
 
@@ -102,10 +102,15 @@ pub struct Renderer {
     num_vertices: u32,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    diffuse_bind_group: wgpu::BindGroup,
 }
 
 impl Renderer {
-    pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        config: &wgpu::SurfaceConfiguration,
+    ) -> Self {
         // Load shaders into shader modules
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
@@ -148,11 +153,65 @@ impl Renderer {
             label: Some("camera_bind_group"),
         });
 
-        // Create pipeline layout containing the camera bind group layout
+        // Load default/test texture
+        let test_texture = texture::Texture::load(device, queue, "assets/sprites/test.png")
+            .unwrap_or_else(|e| {
+                eprintln!("Warning: Failed to load test texture, using fallback. Error: {:?}", e);
+                let fallback_img = image::RgbaImage::from_pixel(32, 32, image::Rgba([255, 0, 0, 255]));
+                texture::Texture::from_image(
+                    device,
+                    queue,
+                    &image::DynamicImage::ImageRgba8(fallback_img),
+                    Some("Fallback Texture"),
+                )
+                .unwrap()
+            });
+
+        // Create texture bind group layout
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("texture_bind_group_layout"),
+            });
+
+        // Create texture bind group
+        let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&test_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&test_texture.sampler),
+                },
+            ],
+            label: Some("diffuse_bind_group"),
+        });
+
+        // Create pipeline layout containing both bind group layouts
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&camera_bind_group_layout],
+                bind_group_layouts: &[&camera_bind_group_layout, &texture_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -210,6 +269,7 @@ impl Renderer {
             num_vertices,
             camera_buffer,
             camera_bind_group,
+            diffuse_bind_group,
         }
     }
 
@@ -254,6 +314,7 @@ impl Renderer {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.draw(0..self.num_vertices, 0..1);
         }
