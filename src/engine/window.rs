@@ -12,9 +12,11 @@ pub struct State {
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
     renderer: crate::renderer::Renderer,
+    batcher: crate::renderer::batch::SpriteBatcher,
     pub window: Arc<Window>,
     pub color: wgpu::Color,
     pub time: crate::engine::time::Time,
+    time_elapsed: f32,
 }
 
 impl State {
@@ -84,6 +86,7 @@ impl State {
         surface.configure(&device, &config);
 
         let renderer = crate::renderer::Renderer::new(&device, &queue, &config);
+        let batcher = crate::renderer::batch::SpriteBatcher::new();
 
         Ok(Self {
             surface,
@@ -92,14 +95,16 @@ impl State {
             config,
             is_surface_configured: true,
             renderer,
+            batcher,
             window,
             color: wgpu::Color {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
+                r: 0.05,
+                g: 0.05,
+                b: 0.08,
                 a: 1.0,
             },
             time: crate::engine::time::Time::new(),
+            time_elapsed: 0.0,
         })
     }
 
@@ -114,7 +119,49 @@ impl State {
     }
 
     pub fn update(&mut self) {
-        self.time.update();
+        let delta = self.time.update();
+        self.time_elapsed += delta.as_secs_f32();
+
+        // Clear batcher for the new frame
+        self.batcher.clear();
+
+        // Generate a 10x10 grid of 3D cubes forming an animated wave
+        let grid_size = 10;
+        for x in 0..grid_size {
+            for z in 0..grid_size {
+                let pos_x = (x as f32 - grid_size as f32 / 2.0) * 0.15;
+                let pos_z = (z as f32 - grid_size as f32 / 2.0) * 0.15;
+                
+                // Animated heightmap using a combination of sine and cosine waves
+                let height = ((x as f32 * 0.5 + self.time_elapsed).sin() 
+                    + (z as f32 * 0.5 + self.time_elapsed).cos()) * 0.05;
+
+                self.batcher.add_cube(
+                    glam::Vec3::new(pos_x, height - 0.1, pos_z),
+                    glam::Vec3::new(0.12, 0.12, 0.12),
+                    0, // Uses texture ID 0 (our test/default texture)
+                );
+            }
+        }
+
+        // Add 5 orbiting vertical sprites above the grid
+        let num_sprites = 5;
+        for i in 0..num_sprites {
+            let angle = (i as f32 / num_sprites as f32) * std::f32::consts::TAU + self.time_elapsed;
+            let radius = 0.4;
+            let pos = glam::Vec3::new(angle.cos() * radius, 0.25, angle.sin() * radius);
+            
+            let sprite = crate::renderer::sprite::Sprite::new(
+                pos,
+                glam::Vec2::new(0.08, 0.08),
+                0,
+                angle,
+            );
+            self.batcher.add_sprite(sprite, crate::renderer::sprite::SpriteAlignment::Vertical);
+        }
+
+        // Compile batches and upload to the GPU
+        self.batcher.finalize(&self.device, &self.queue);
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -129,7 +176,7 @@ impl State {
 
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.renderer.render(&view, &self.device, &self.queue, self.color)?;
+        self.renderer.render_batch(&view, &self.device, &self.queue, self.color, &self.batcher)?;
 
         output.present();
 

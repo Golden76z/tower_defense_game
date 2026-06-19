@@ -1,3 +1,4 @@
+pub mod batch;
 pub mod sprite;
 pub mod texture;
 
@@ -9,6 +10,7 @@ use wgpu::util::DeviceExt;
 pub struct Vertex {
     pub position: [f32; 3],
     pub tex_coords: [f32; 2],
+    pub color: [f32; 4],
 }
 
 impl Vertex {
@@ -27,24 +29,32 @@ impl Vertex {
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x2,
                 },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 5]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
             ],
         }
     }
 }
 
-// 3D vertices lying flat on the X-Z ground plane with UV coordinates
+// 3D vertices lying flat on the X-Z ground plane with UV coordinates and white vertex colors
 const VERTICES: &[Vertex] = &[
     Vertex {
         position: [0.0, 0.0, 0.5],
         tex_coords: [0.5, 0.0],
+        color: [1.0, 1.0, 1.0, 1.0],
     },
     Vertex {
         position: [0.5, 0.0, -0.5],
         tex_coords: [1.0, 1.0],
+        color: [1.0, 1.0, 1.0, 1.0],
     },
     Vertex {
         position: [-0.5, 0.0, -0.5],
         tex_coords: [0.0, 1.0],
+        color: [1.0, 1.0, 1.0, 1.0],
     },
 ];
 
@@ -103,7 +113,8 @@ pub struct Renderer {
     num_vertices: u32,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    diffuse_bind_group: wgpu::BindGroup,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
+    texture_bind_groups: Vec<wgpu::BindGroup>,
 }
 
 impl Renderer {
@@ -192,7 +203,7 @@ impl Renderer {
                 label: Some("texture_bind_group_layout"),
             });
 
-        // Create texture bind group
+        // Create initial texture bind group
         let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &texture_bind_group_layout,
             entries: &[
@@ -270,8 +281,31 @@ impl Renderer {
             num_vertices,
             camera_buffer,
             camera_bind_group,
-            diffuse_bind_group,
+            texture_bind_group_layout,
+            texture_bind_groups: vec![diffuse_bind_group],
         }
+    }
+
+    /// Registers a new texture and returns its assigned texture_id.
+    pub fn register_texture(&mut self, device: &wgpu::Device, texture: &texture::Texture) -> usize {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
+                },
+            ],
+            label: Some("dynamic_texture_bind_group"),
+        });
+
+        let id = self.texture_bind_groups.len();
+        self.texture_bind_groups.push(bind_group);
+        id
     }
 
     pub fn resize(&mut self, config: &wgpu::SurfaceConfiguration, queue: &wgpu::Queue) {
@@ -315,9 +349,59 @@ impl Renderer {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
+            if let Some(bind_group) = self.texture_bind_groups.first() {
+                render_pass.set_bind_group(1, bind_group, &[]);
+            }
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.draw(0..self.num_vertices, 0..1);
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+        Ok(())
+    }
+
+    /// Renders all batches collected by the SpriteBatcher.
+    pub fn render_batch(
+        &self,
+        view: &wgpu::TextureView,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        clear_color: wgpu::Color,
+        batcher: &batch::SpriteBatcher,
+    ) -> Result<(), wgpu::SurfaceError> {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Batch Render Encoder"),
+        });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Batch Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            if let Some(vertex_buffer) = batcher.vertex_buffer() {
+                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+
+                for batch in batcher.batches() {
+                    if let Some(bind_group) = self.texture_bind_groups.get(batch.texture_id) {
+                        render_pass.set_bind_group(1, bind_group, &[]);
+                        render_pass.draw(batch.vertex_offset..(batch.vertex_offset + batch.vertex_count), 0..1);
+                    }
+                }
+            }
         }
 
         queue.submit(std::iter::once(encoder.finish()));

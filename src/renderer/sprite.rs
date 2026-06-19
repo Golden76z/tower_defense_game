@@ -123,27 +123,33 @@ impl Sprite {
             Vertex {
                 position: tl_pos,
                 tex_coords: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
             },
             Vertex {
                 position: br_pos,
                 tex_coords: [1.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
             },
             Vertex {
                 position: bl_pos,
                 tex_coords: [0.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
             },
             // Triangle 2
             Vertex {
                 position: tl_pos,
                 tex_coords: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
             },
             Vertex {
                 position: tr_pos,
                 tex_coords: [1.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
             },
             Vertex {
                 position: br_pos,
                 tex_coords: [1.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
             },
         ]
     }
