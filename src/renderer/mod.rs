@@ -1,8 +1,9 @@
 pub mod batch;
 pub mod sprite;
 pub mod texture;
+pub mod camera;
 
-use glam::{Mat4, Vec3};
+use glam::Mat4;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -82,30 +83,7 @@ impl CameraUniform {
     }
 }
 
-// Helper function to compute the 3D isometric view-projection matrix
-fn compute_isometric_view_proj(width: u32, height: u32) -> Mat4 {
-    // Look at origin (0,0,0) from direction (2, 2, 2)
-    let eye = Vec3::new(2.0, 2.0, 2.0);
-    let target = Vec3::ZERO;
-    let up = Vec3::Y;
-    let view = Mat4::look_at_rh(eye, target, up);
 
-    // Parallel orthographic projection for classic isometric look
-    // Scale orthographic width according to aspect ratio to prevent stretching
-    let aspect = width as f32 / height as f32;
-    let ortho_height = 2.0;
-    let ortho_width = ortho_height * aspect;
-    let proj = Mat4::orthographic_rh(
-        -ortho_width / 2.0,
-        ortho_width / 2.0,
-        -ortho_height / 2.0,
-        ortho_height / 2.0,
-        -10.0,
-        10.0,
-    );
-
-    proj * view
-}
 
 pub struct Renderer {
     render_pipeline: wgpu::RenderPipeline,
@@ -122,6 +100,7 @@ impl Renderer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         config: &wgpu::SurfaceConfiguration,
+        camera: &camera::Camera,
     ) -> Self {
         // Load shaders into shader modules
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -131,7 +110,7 @@ impl Renderer {
 
         // Initialize camera uniform & buffer
         let mut camera_uniform = CameraUniform::new();
-        let view_proj = compute_isometric_view_proj(config.width, config.height);
+        let view_proj = camera.build_view_projection_matrix(config.width, config.height);
         camera_uniform.update_view_proj(view_proj);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -308,8 +287,8 @@ impl Renderer {
         id
     }
 
-    pub fn resize(&mut self, config: &wgpu::SurfaceConfiguration, queue: &wgpu::Queue) {
-        let view_proj = compute_isometric_view_proj(config.width, config.height);
+    pub fn update_camera_uniform(&self, queue: &wgpu::Queue, camera: &camera::Camera, width: u32, height: u32) {
+        let view_proj = camera.build_view_projection_matrix(width, height);
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(view_proj);
         queue.write_buffer(
@@ -317,6 +296,10 @@ impl Renderer {
             0,
             bytemuck::cast_slice(&[camera_uniform]),
         );
+    }
+
+    pub fn resize(&mut self, _config: &wgpu::SurfaceConfiguration) {
+        // Uniform updates are handled externally by update_camera_uniform
     }
 
     pub fn render(

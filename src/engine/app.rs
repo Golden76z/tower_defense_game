@@ -100,6 +100,10 @@ impl ApplicationHandler<State> for App {
             None => return,
         };
 
+        if state.input(&event) {
+            return;
+        }
+
         match event {
             // Clicking on the close button
             WindowEvent::CloseRequested => event_loop.exit(),

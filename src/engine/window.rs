@@ -17,6 +17,8 @@ pub struct State {
     pub color: wgpu::Color,
     pub time: crate::engine::time::Time,
     time_elapsed: f32,
+    pub camera: crate::renderer::camera::Camera,
+    pub camera_controller: crate::renderer::camera::CameraController,
 }
 
 impl State {
@@ -85,7 +87,9 @@ impl State {
         // Configure the surface - THIS IS IMPORTANT!
         surface.configure(&device, &config);
 
-        let renderer = crate::renderer::Renderer::new(&device, &queue, &config);
+        let camera = crate::renderer::camera::Camera::new();
+        let camera_controller = crate::renderer::camera::CameraController::default();
+        let renderer = crate::renderer::Renderer::new(&device, &queue, &config, &camera);
         let batcher = crate::renderer::batch::SpriteBatcher::new();
 
         Ok(Self {
@@ -105,6 +109,8 @@ impl State {
             },
             time: crate::engine::time::Time::new(),
             time_elapsed: 0.0,
+            camera,
+            camera_controller,
         })
     }
 
@@ -114,13 +120,19 @@ impl State {
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
             self.is_surface_configured = true;
-            self.renderer.resize(&self.config, &self.queue);
+            self.renderer.resize(&self.config);
+            self.renderer.update_camera_uniform(&self.queue, &self.camera, width, height);
         }
     }
 
     pub fn update(&mut self) {
         let delta = self.time.update();
-        self.time_elapsed += delta.as_secs_f32();
+        let dt = delta.as_secs_f32();
+        self.time_elapsed += dt;
+
+        // Update the camera and upload new uniform matrix to GPU
+        self.camera_controller.update_camera(&mut self.camera, dt);
+        self.renderer.update_camera_uniform(&self.queue, &self.camera, self.config.width, self.config.height);
 
         // Clear batcher for the new frame
         self.batcher.clear();
@@ -181,6 +193,27 @@ impl State {
         output.present();
 
         Ok(())
+    }
+
+    pub fn input(&mut self, event: &winit::event::WindowEvent) -> bool {
+        match event {
+            winit::event::WindowEvent::KeyboardInput {
+                event:
+                    winit::event::KeyEvent {
+                        physical_key: winit::keyboard::PhysicalKey::Code(code),
+                        state: key_state,
+                        ..
+                    },
+                ..
+            } => {
+                self.camera_controller.process_key(*code, key_state.is_pressed())
+            }
+            winit::event::WindowEvent::MouseWheel { delta, .. } => {
+                self.camera_controller.process_scroll(delta);
+                true
+            }
+            _ => false,
+        }
     }
 }
 
