@@ -483,4 +483,65 @@ impl Renderer {
         queue.submit(std::iter::once(encoder.finish()));
         Ok(())
     }
+
+    /// Renders several batchers in a single pass, clearing once. This lets a
+    /// cached static batcher (e.g. terrain) be drawn alongside a per-frame
+    /// dynamic batcher (towers, enemies, projectiles) without redundant work.
+    /// Depth testing resolves ordering between them.
+    pub fn render_batches(
+        &self,
+        view: &wgpu::TextureView,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        clear_color: wgpu::Color,
+        batchers: &[&batch::SpriteBatcher],
+    ) -> Result<(), wgpu::SurfaceError> {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Multi-Batch Render Encoder"),
+        });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Multi-Batch Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+
+            for batcher in batchers {
+                if let Some(vertex_buffer) = batcher.vertex_buffer() {
+                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+
+                    for batch in batcher.batches() {
+                        if let Some(bind_group) = self.texture_bind_groups.get(batch.texture_id) {
+                            render_pass.set_bind_group(1, bind_group, &[]);
+                            render_pass.draw(batch.vertex_offset..(batch.vertex_offset + batch.vertex_count), 0..1);
+                        }
+                    }
+                }
+            }
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+        Ok(())
+    }
 }

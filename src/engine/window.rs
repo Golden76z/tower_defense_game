@@ -12,7 +12,10 @@ pub struct State {
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
     renderer: crate::renderer::Renderer,
+    /// Per-frame batcher for dynamic objects (towers, enemies, projectiles).
     batcher: crate::renderer::batch::SpriteBatcher,
+    /// Cached static terrain mesh, rebuilt only when the map changes.
+    terrain_batcher: crate::renderer::batch::SpriteBatcher,
     map: crate::game::map::Map,
     pub window: Arc<Window>,
     pub color: wgpu::Color,
@@ -93,7 +96,12 @@ impl State {
         let renderer = crate::renderer::Renderer::new(&device, &queue, &config, &camera);
         let batcher = crate::renderer::batch::SpriteBatcher::new();
 
-        let map = crate::game::map::Map::generate_island(32, 32, 1337);
+        let map = crate::game::map::Map::generate_island(20, 20, 1337);
+
+        // Build the static terrain mesh once. It only needs rebuilding when
+        // the map itself changes, not every frame.
+        let mut terrain_batcher = crate::renderer::batch::SpriteBatcher::new();
+        build_terrain_mesh(&map, &mut terrain_batcher, &device, &queue);
 
         Ok(Self {
             surface,
@@ -103,6 +111,7 @@ impl State {
             is_surface_configured: true,
             renderer,
             batcher,
+            terrain_batcher,
             map,
             window,
             color: wgpu::Color {
@@ -138,48 +147,23 @@ impl State {
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.renderer.update_camera_uniform(&self.queue, &self.camera, self.config.width, self.config.height);
 
-        // Clear batcher for the new frame
+        // Clear the dynamic batcher for the new frame. Static terrain lives in
+        // `terrain_batcher` and is NOT rebuilt here — only dynamic objects
+        // (towers, enemies, projectiles) are queued each frame.
         self.batcher.clear();
 
-        // --- Isometric terrain from Map ---
-        let cube_spacing = 0.12;
-        let cube_size = glam::Vec3::new(0.12, 0.12, 0.12);
-        let grid_width = self.map.width;
-        let grid_height = self.map.height;
+        // TODO: queue dynamic objects (towers, enemies, projectiles) here via
+        // self.batcher.add_sprite(...) / add_cube(...).
 
-        for x in 0..grid_width {
-            for z in 0..grid_height {
-                if let Some(tile) = self.map.get_tile(x, z) {
-                    let pos_x = (x as f32 - grid_width as f32 / 2.0) * cube_spacing;
-                    let pos_z = (z as f32 - grid_height as f32 / 2.0) * cube_spacing;
-                    
-                    let height_steps = tile.grid_y;
-                    
-                    // Determine textures based on tile type
-                    // IDs: 0 = grass side, 1 = grass top, 2 = water, 3 = sand, 4 = rock
-                    let (top_tex, side_tex) = match tile.tile_type {
-                        crate::game::map::tile::TileType::Grass => (1, 0),
-                        crate::game::map::tile::TileType::Water => (2, 2),
-                        crate::game::map::tile::TileType::Sand => (3, 3),
-                        crate::game::map::tile::TileType::Rock => (4, 4),
-                        crate::game::map::tile::TileType::Path => (3, 0), // Use sand for path for now
-                    };
-
-                    let foundation_depth = -4; // Draw deep enough to hide gaps
-                    for y_step in foundation_depth..=height_steps {
-                        self.batcher.add_cube(
-                            glam::Vec3::new(pos_x, y_step as f32 * cube_size.y, pos_z),
-                            cube_size,
-                            side_tex,
-                            if y_step == height_steps { top_tex } else { side_tex },
-                        );
-                    }
-                }
-            }
-        }
-
-        // Compile batches and upload to the GPU
+        // Compile batches and upload to the GPU.
         self.batcher.finalize(&self.device, &self.queue);
+    }
+
+    /// Rebuilds the cached terrain mesh from the current map. Call this after
+    /// the map changes (e.g. a wall is placed or a tile is edited); it is not
+    /// needed on every frame.
+    pub fn rebuild_terrain(&mut self) {
+        build_terrain_mesh(&self.map, &mut self.terrain_batcher, &self.device, &self.queue);
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -194,7 +178,15 @@ impl State {
 
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.renderer.render_batch(&view, &self.device, &self.queue, self.color, &self.batcher)?;
+        // Draw the cached terrain first, then dynamic objects, in a single
+        // pass. Depth testing resolves ordering between the two.
+        self.renderer.render_batches(
+            &view,
+            &self.device,
+            &self.queue,
+            self.color,
+            &[&self.terrain_batcher, &self.batcher],
+        )?;
 
         output.present();
 
@@ -221,6 +213,92 @@ impl State {
             _ => false,
         }
     }
+}
+
+/// Builds a face-culled terrain mesh from the map into `batcher`, then uploads
+/// it to the GPU. Only visible faces are generated:
+///
+/// * the top face of every tile, and
+/// * side faces only where a tile is taller than its neighbour (the exposed
+///   "cliff"); faces touching an equal-or-taller neighbour are skipped.
+///
+/// Map-border tiles emit a short skirt down to `BASE_LEVEL` so the underside of
+/// the island isn't visible from the isometric camera angle. This replaces the
+/// old approach of stacking full cubes from a fixed `-4` foundation, which
+/// generated huge amounts of hidden geometry every frame.
+fn build_terrain_mesh(
+    map: &crate::game::map::Map,
+    batcher: &mut crate::renderer::batch::SpriteBatcher,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) {
+    use crate::game::map::tile::TileType;
+    use crate::renderer::batch::Face;
+
+    const CUBE_SPACING: f32 = 0.12;
+    const BASE_LEVEL: i32 = -2; // Border skirt depth.
+    let cube_size = glam::Vec3::new(0.12, 0.12, 0.12);
+
+    batcher.clear();
+
+    let w = map.width;
+    let h = map.height;
+
+    for x in 0..w {
+        for z in 0..h {
+            let tile = match map.get_tile(x, z) {
+                Some(t) => t,
+                None => continue,
+            };
+
+            let pos_x = (x as f32 - w as f32 / 2.0) * CUBE_SPACING;
+            let pos_z = (z as f32 - h as f32 / 2.0) * CUBE_SPACING;
+            let top_h = tile.grid_y;
+
+            // Texture IDs: 0 = grass side, 1 = grass top, 2 = water, 3 = sand, 4 = rock.
+            let (top_tex, side_tex) = match tile.tile_type {
+                TileType::Grass => (1usize, 0usize),
+                TileType::Water => (2, 2),
+                TileType::Sand => (3, 3),
+                TileType::Rock => (4, 4),
+                TileType::Path => (3, 0), // Use sand for path for now.
+            };
+
+            // Top face — always visible from above.
+            batcher.add_face(
+                glam::Vec3::new(pos_x, top_h as f32 * cube_size.y, pos_z),
+                cube_size,
+                Face::Top,
+                top_tex,
+            );
+
+            // Exposed side skirts: one face per level between the neighbour's
+            // top and ours. Levels at or below the neighbour are hidden.
+            let neighbours = [
+                (x + 1, z, Face::East),
+                (x - 1, z, Face::West),
+                (x, z + 1, Face::South),
+                (x, z - 1, Face::North),
+            ];
+
+            for (nx, nz, face) in neighbours {
+                let neighbour_h = map.get_tile(nx, nz).map(|t| t.grid_y).unwrap_or(BASE_LEVEL);
+
+                let mut level = neighbour_h + 1;
+                while level <= top_h {
+                    batcher.add_face(
+                        glam::Vec3::new(pos_x, level as f32 * cube_size.y, pos_z),
+                        cube_size,
+                        face,
+                        side_tex,
+                    );
+                    level += 1;
+                }
+            }
+        }
+    }
+
+    batcher.finalize(device, queue);
 }
 
 // Removed Vertex implementation (moved to renderer module)
