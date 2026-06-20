@@ -30,6 +30,10 @@ pub struct State {
     time_elapsed: f32,
     pub camera: crate::renderer::camera::Camera,
     pub camera_controller: crate::renderer::camera::CameraController,
+    /// Centralised keyboard/mouse state for game logic to query.
+    input: crate::engine::input::InputState,
+    /// When true, the enemy path is drawn as ground markers (toggle: `P`).
+    show_path_debug: bool,
 }
 
 impl State {
@@ -159,6 +163,8 @@ impl State {
             time_elapsed: 0.0,
             camera,
             camera_controller,
+            input: crate::engine::input::InputState::new(),
+            show_path_debug: false,
         })
     }
 
@@ -173,13 +179,48 @@ impl State {
         }
     }
 
+    /// Advances the game one frame.
+    ///
+    /// Logic runs on a fixed timestep (so it's deterministic and rate-stable),
+    /// while rendering preparation runs once per frame at whatever rate the
+    /// host draws. See [`crate::engine::time::Time`].
     pub fn update(&mut self) {
-        let delta = self.time.update();
-        let dt = delta.as_secs_f32();
-        self.time_elapsed += dt;
+        // Measure real elapsed time and fold it into the accumulator.
+        self.time.begin_frame();
 
-        // Update the camera and upload new uniform matrix to GPU
+        // Drain the accumulator in fixed steps. Zero, one, or several logic
+        // updates may run per frame depending on render rate; the spiral-of-
+        // death guard lives inside `next_fixed_step`.
+        let fixed_dt = self.time.fixed_delta_secs();
+        while self.time.next_fixed_step() {
+            self.fixed_update(fixed_dt);
+        }
+
+        // Toggle the debug path overlay with `P`.
+        if self.input.is_key_just_pressed(winit::keyboard::KeyCode::KeyP) {
+            self.show_path_debug = !self.show_path_debug;
+            log::info!("Path debug overlay: {}", self.show_path_debug);
+        }
+
+        // Per-frame (variable-rate) work: view matrix, hover pick, batching.
+        self.prepare_frame();
+
+        // Reset edge-triggered input now that this frame's logic has read it.
+        self.input.clear_frame_state();
+    }
+
+    /// Fixed-timestep logic update. `dt` is always [`Time::fixed_delta_secs`],
+    /// so simulation behaves identically regardless of frame rate. Future game
+    /// logic (enemies, projectiles, towers, economy) steps here.
+    fn fixed_update(&mut self, dt: f32) {
+        self.time_elapsed += dt;
         self.camera_controller.update_camera(&mut self.camera, dt);
+    }
+
+    /// Per-frame render preparation: upload the camera matrix, resolve the
+    /// hovered tile, and rebuild the dynamic draw batch. Runs once per rendered
+    /// frame (variable rate), independent of the fixed logic steps above.
+    fn prepare_frame(&mut self) {
         self.renderer.update_camera_uniform(&self.queue, &self.camera, self.config.width, self.config.height);
 
         // Resolve which tile the cursor is over (camera may have moved, so this
@@ -214,11 +255,54 @@ impl State {
             }
         }
 
-        // TODO: queue dynamic objects (towers, enemies, projectiles) here via
-        // self.batcher.add_sprite(...) / add_cube(...).
+        // Debug: draw the enemy path as ground markers when enabled.
+        if self.show_path_debug {
+            self.draw_path_debug();
+        }
 
         // Compile batches and upload to the GPU.
         self.batcher.finalize(&self.device, &self.queue);
+    }
+
+    /// Queues translucent ground markers tracing the map's enemy path into the
+    /// dynamic batch. Markers are sampled along each segment so any path shape
+    /// (including diagonals) is visualised.
+    fn draw_path_debug(&mut self) {
+        // Snapshot the waypoints so the immutable borrow of `self.map` is
+        // released before mutably borrowing `self.batcher` below.
+        let waypoints: Vec<glam::Vec2> = self.map.path.waypoints().to_vec();
+        if waypoints.len() < 2 {
+            return;
+        }
+
+        let mw = self.map.width as f32;
+        let mh = self.map.height as f32;
+        let tex = self.highlight_texture_id;
+        // Float just above the (flat) path tiles' top surface.
+        let y = TILE_WORLD_SIZE * 0.5 + 0.012;
+        let size = glam::Vec3::splat(TILE_WORLD_SIZE * 0.3);
+
+        let to_world = |w: glam::Vec2| {
+            (
+                (w.x - mw / 2.0) * TILE_WORLD_SIZE,
+                (w.y - mh / 2.0) * TILE_WORLD_SIZE,
+            )
+        };
+
+        for pair in waypoints.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let steps = (a.distance(b) / 0.15).ceil().max(1.0) as i32;
+            for i in 0..=steps {
+                let p = a.lerp(b, i as f32 / steps as f32);
+                let (wx, wz) = to_world(p);
+                self.batcher.add_overlay_quad(
+                    glam::Vec3::new(wx, y, wz),
+                    size,
+                    PATH_DEBUG_COLOR,
+                    tex,
+                );
+            }
+        }
     }
 
     /// Records the latest cursor position (physical pixels).
@@ -328,7 +412,20 @@ impl State {
                     },
                 ..
             } => {
+                // Track in the central input state, then keep driving the
+                // camera controller as before.
+                self.input.process_key(*code, *key_state);
                 self.camera_controller.process_key(*code, key_state.is_pressed())
+            }
+            winit::event::WindowEvent::MouseInput { state, button, .. } => {
+                self.input.process_mouse_button(*button, *state);
+                false
+            }
+            winit::event::WindowEvent::CursorMoved { position, .. } => {
+                self.input
+                    .set_mouse_position(position.x as f32, position.y as f32);
+                // Returns false so `app.rs` still updates the hover cursor.
+                false
             }
             winit::event::WindowEvent::MouseWheel { delta, .. } => {
                 self.camera_controller.process_scroll(delta);
@@ -336,6 +433,11 @@ impl State {
             }
             _ => false,
         }
+    }
+
+    /// Read-only access to the current keyboard/mouse state for game logic.
+    pub fn input_state(&self) -> &crate::engine::input::InputState {
+        &self.input
     }
 }
 
@@ -353,6 +455,9 @@ const HIGHLIGHT_COLOR: [f32; 4] = [1.0, 0.9, 0.3, 0.45];
 /// How much larger the highlight shell is than the block it wraps, so it sits
 /// just outside the terrain faces and avoids z-fighting.
 const HIGHLIGHT_INFLATE: f32 = 0.006;
+
+/// Translucent red tint for the debug enemy-path markers.
+const PATH_DEBUG_COLOR: [f32; 4] = [1.0, 0.25, 0.15, 0.9];
 
 /// Ray vs axis-aligned box intersection (slab method).
 ///

@@ -33,10 +33,13 @@
 use std::fmt;
 use std::path::Path;
 
+use glam::Vec2;
 use serde::Deserialize;
 
 use super::map::Map;
 use super::tile::{Tile, TileType};
+// NOTE: `super::path::Path` is referenced fully-qualified below to avoid a name
+// clash with `std::path::Path` (imported above for file loading).
 
 /// Raw map data as stored in a JSON file.
 ///
@@ -47,6 +50,10 @@ pub struct MapData {
     pub width: i32,
     pub height: i32,
     pub tiles: Vec<Vec<u32>>,
+    /// Optional enemy route as `[x, y]` tile-space waypoints. Absent in older
+    /// maps, in which case the path is empty.
+    #[serde(default)]
+    pub path: Vec<[f32; 2]>,
 }
 
 /// Errors that can occur while loading a map from JSON.
@@ -181,6 +188,9 @@ impl MapData {
                 })?;
             }
         }
+
+        map.path =
+            super::path::Path::new(self.path.iter().map(|p| Vec2::new(p[0], p[1])).collect());
 
         Ok(map)
     }
