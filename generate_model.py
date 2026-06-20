@@ -1,0 +1,48 @@
+import os
+
+def create_pyramid_obj():
+    os.makedirs('assets/models', exist_ok=True)
+    
+    obj_content = """# Pyramid Model
+# Vertices (x, y, z)
+v -0.5 0.0 -0.5
+v 0.5 0.0 -0.5
+v 0.5 0.0 0.5
+v -0.5 0.0 0.5
+v 0.0 1.0 0.0
+
+# Texture coordinates (u, v)
+vt 0.0 0.0
+vt 1.0 0.0
+vt 1.0 1.0
+vt 0.0 1.0
+vt 0.5 0.5
+
+# Normals (nx, ny, nz) - Not used in our engine yet, but good to have
+vn 0.0 -1.0 0.0
+vn 0.0 0.447 0.894
+vn 0.894 0.447 0.0
+vn 0.0 0.447 -0.894
+vn -0.894 0.447 0.0
+
+# Faces (v/vt/vn)
+# Base (two triangles)
+f 3/3/1 2/2/1 1/1/1
+f 4/4/1 3/3/1 1/1/1
+
+# Sides
+# Front
+f 1/1/2 2/2/2 5/5/2
+# Right
+f 2/2/3 3/3/3 5/5/3
+# Back
+f 3/3/4 4/4/4 5/5/4
+# Left
+f 4/4/5 1/1/5 5/5/5
+"""
+    with open('assets/models/enemy.obj', 'w') as f:
+        f.write(obj_content)
+    print("Created assets/models/enemy.obj")
+
+if __name__ == '__main__':
+    create_pyramid_obj()

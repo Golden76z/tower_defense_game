@@ -68,6 +68,11 @@ pub enum BatchItem {
         color: [f32; 4],
         texture_id: usize,
     },
+    /// Arbitrary 3D vertices from a transformed model.
+    Model {
+        vertices: Vec<Vertex>,
+        texture_id: usize,
+    },
 }
 
 impl BatchItem {
@@ -79,6 +84,7 @@ impl BatchItem {
             BatchItem::CubeFace { texture_id, .. } => *texture_id,
             BatchItem::OverlayQuad { texture_id, .. } => *texture_id,
             BatchItem::ColorFace { texture_id, .. } => *texture_id,
+            BatchItem::Model { texture_id, .. } => *texture_id,
         }
     }
 
@@ -246,6 +252,9 @@ impl BatchItem {
             BatchItem::ColorFace { position, size, face, color, .. } => {
                 push_color_face(vertices, *face, *position, *size, *color);
             }
+            BatchItem::Model { vertices: model_verts, .. } => {
+                vertices.extend_from_slice(model_verts);
+            }
         }
     }
 }
@@ -385,6 +394,11 @@ impl SpriteBatcher {
         for face in [Face::Top, Face::North, Face::South, Face::East, Face::West] {
             self.items.push(BatchItem::ColorFace { position: center, size, face, color, texture_id });
         }
+    }
+
+    /// Adds pre-transformed model vertices to the batcher.
+    pub fn add_model(&mut self, vertices: Vec<Vertex>, texture_id: usize) {
+        self.items.push(BatchItem::Model { vertices, texture_id });
     }
 
     /// Returns a slice of the compiled batches.

@@ -8,6 +8,8 @@ pub enum SpriteAlignment {
     Horizontal,
     /// Standing upright on the X-Y plane.
     Vertical,
+    /// Facing the isometric camera perfectly.
+    Billboard,
 }
 
 /// Represents a sprite in the 3D isometric world.
@@ -17,6 +19,7 @@ pub struct Sprite {
     pub size: Vec2,
     pub texture_id: usize,
     pub rotation: f32,
+    pub color: [f32; 4],
 }
 
 impl Sprite {
@@ -27,6 +30,18 @@ impl Sprite {
             size,
             texture_id,
             rotation,
+            color: [1.0, 1.0, 1.0, 1.0], // Default to white
+        }
+    }
+
+    /// Creates a new `Sprite` with the given parameters and color.
+    pub fn new_colored(position: Vec3, size: Vec2, texture_id: usize, rotation: f32, color: [f32; 4]) -> Self {
+        Self {
+            position,
+            size,
+            texture_id,
+            rotation,
+            color,
         }
     }
 
@@ -100,56 +115,71 @@ impl Sprite {
         // 2. Project corners into 3D space based on alignment and translate by position
         let (tl_pos, bl_pos, br_pos, tr_pos) = match alignment {
             SpriteAlignment::Horizontal => {
-                let tl = [self.position.x + tl_2d.x, self.position.y, self.position.z + tl_2d.y];
-                let bl = [self.position.x + bl_2d.x, self.position.y, self.position.z + bl_2d.y];
-                let br = [self.position.x + br_2d.x, self.position.y, self.position.z + br_2d.y];
-                let tr = [self.position.x + tr_2d.x, self.position.y, self.position.z + tr_2d.y];
+                let tl = [self.position.x + tl_2d.x, self.position.y, self.position.z - tl_2d.y];
+                let bl = [self.position.x + bl_2d.x, self.position.y, self.position.z - bl_2d.y];
+                let br = [self.position.x + br_2d.x, self.position.y, self.position.z - br_2d.y];
+                let tr = [self.position.x + tr_2d.x, self.position.y, self.position.z - tr_2d.y];
                 (tl, bl, br, tr)
             }
             SpriteAlignment::Vertical => {
+                // To fix the back-face culling for Vertical, we should ensure the normal faces +Z.
+                // However, we swap it here if needed, but for now we leave it as X-Y plane.
                 let tl = [self.position.x + tl_2d.x, self.position.y + tl_2d.y, self.position.z];
                 let bl = [self.position.x + bl_2d.x, self.position.y + bl_2d.y, self.position.z];
                 let br = [self.position.x + br_2d.x, self.position.y + br_2d.y, self.position.z];
                 let tr = [self.position.x + tr_2d.x, self.position.y + tr_2d.y, self.position.z];
                 (tl, bl, br, tr)
             }
+            SpriteAlignment::Billboard => {
+                // The isometric camera looks along (-1, -1, -1).
+                // The right vector is (1, 0, -1).
+                // The up vector is cross(right, camera_dir) = (-1, 2, -1).
+                let right = glam::Vec3::new(1.0, 0.0, -1.0).normalize();
+                let up = glam::Vec3::new(-1.0, 2.0, -1.0).normalize();
+                
+                let tl = self.position + right * tl_2d.x + up * tl_2d.y;
+                let bl = self.position + right * bl_2d.x + up * bl_2d.y;
+                let br = self.position + right * br_2d.x + up * br_2d.y;
+                let tr = self.position + right * tr_2d.x + up * tr_2d.y;
+                (tl.into(), bl.into(), br.into(), tr.into())
+            }
         };
 
-        // 3. Assemble into two triangles with matching winding order (Ccw after projection) and correct UVs.
-        // Triangle 1: Top-Left -> Bottom-Right -> Bottom-Left
-        // Triangle 2: Top-Left -> Top-Right -> Bottom-Right
+        // 3. Assemble into two triangles with standard CCW winding
+        // Triangle 1: Top-Left -> Bottom-Left -> Bottom-Right
+        // Triangle 2: Top-Left -> Bottom-Right -> Top-Right
         [
             // Triangle 1
             Vertex {
                 position: tl_pos,
                 tex_coords: [0.0, 0.0],
-                color: [1.0, 1.0, 1.0, 1.0],
-            },
-            Vertex {
-                position: br_pos,
-                tex_coords: [1.0, 1.0],
-                color: [1.0, 1.0, 1.0, 1.0],
+                color: self.color,
             },
             Vertex {
                 position: bl_pos,
                 tex_coords: [0.0, 1.0],
-                color: [1.0, 1.0, 1.0, 1.0],
+                color: self.color,
+            },
+            Vertex {
+                position: br_pos,
+                tex_coords: [1.0, 1.0],
+                color: self.color,
             },
             // Triangle 2
             Vertex {
                 position: tl_pos,
                 tex_coords: [0.0, 0.0],
-                color: [1.0, 1.0, 1.0, 1.0],
-            },
-            Vertex {
-                position: tr_pos,
-                tex_coords: [1.0, 0.0],
-                color: [1.0, 1.0, 1.0, 1.0],
+                color: self.color,
             },
             Vertex {
                 position: br_pos,
                 tex_coords: [1.0, 1.0],
-                color: [1.0, 1.0, 1.0, 1.0],
+                color: self.color,
+            },
+            Vertex {
+                position: tr_pos,
+                tex_coords: [1.0, 0.0],
+                color: self.color,
             },
         ]
     }
@@ -172,6 +202,7 @@ impl Default for Sprite {
             size: Vec2::ONE,
             texture_id: 0,
             rotation: 0.0,
+            color: [1.0, 1.0, 1.0, 1.0],
         }
     }
 }
