@@ -1,4 +1,4 @@
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 
 pub struct Camera {
     pub target: Vec3,
@@ -34,6 +34,67 @@ impl Camera {
         );
 
         proj * view
+    }
+
+    /// Builds the world-space picking ray for a cursor position (physical
+    /// pixels, origin top-left).
+    ///
+    /// Returns `(origin, direction)` where `origin` is the point on the near
+    /// plane and `direction` is normalised. `None` if the math degenerates.
+    pub fn screen_ray(
+        &self,
+        screen_x: f32,
+        screen_y: f32,
+        width: u32,
+        height: u32,
+    ) -> Option<(Vec3, Vec3)> {
+        if width == 0 || height == 0 {
+            return None;
+        }
+
+        let inv = self.build_view_projection_matrix(width, height).inverse();
+
+        // Pixel -> normalised device coordinates. Screen Y points down, NDC Y
+        // points up, so it's flipped.
+        let ndc_x = 2.0 * screen_x / width as f32 - 1.0;
+        let ndc_y = 1.0 - 2.0 * screen_y / height as f32;
+
+        // wgpu clip space has z in [0, 1]: z=0 is the near plane, z=1 the far.
+        let near = inv * Vec4::new(ndc_x, ndc_y, 0.0, 1.0);
+        let far = inv * Vec4::new(ndc_x, ndc_y, 1.0, 1.0);
+        if near.w.abs() < 1e-8 || far.w.abs() < 1e-8 {
+            return None;
+        }
+
+        let near = near.xyz() / near.w;
+        let far = far.xyz() / far.w;
+        let dir = (far - near).normalize_or_zero();
+        if dir == Vec3::ZERO {
+            return None;
+        }
+
+        Some((near, dir))
+    }
+
+    /// Unprojects a cursor position into the world point where its ray crosses
+    /// the horizontal plane `y = plane_y`. Useful for ground decals.
+    ///
+    /// Returns `None` if the ray is parallel to the plane (which shouldn't
+    /// happen for the isometric camera) or the math degenerates.
+    pub fn screen_to_ground(
+        &self,
+        screen_x: f32,
+        screen_y: f32,
+        width: u32,
+        height: u32,
+        plane_y: f32,
+    ) -> Option<Vec3> {
+        let (origin, dir) = self.screen_ray(screen_x, screen_y, width, height)?;
+        if dir.y.abs() < 1e-8 {
+            return None; // Ray parallel to the ground plane.
+        }
+        let t = (plane_y - origin.y) / dir.y;
+        Some(origin + dir * t)
     }
 }
 
@@ -202,6 +263,35 @@ mod tests {
         assert!(camera.target.x > 0.0);
         assert!(camera.target.z < 0.0);
         assert_eq!(camera.target.y, 0.0);
+    }
+
+    #[test]
+    fn test_screen_center_maps_to_target_on_ground() {
+        // The screen centre should unproject onto the camera target (which sits
+        // on the ground plane y = 0).
+        let camera = Camera::new();
+        let (w, h) = (800u32, 600u32);
+        let hit = camera
+            .screen_to_ground(w as f32 / 2.0, h as f32 / 2.0, w, h, 0.0)
+            .expect("centre ray should hit the ground");
+        assert!(hit.x.abs() < 1e-3, "x ~ 0, got {}", hit.x);
+        assert!(hit.z.abs() < 1e-3, "z ~ 0, got {}", hit.z);
+        assert!(hit.y.abs() < 1e-3, "y ~ 0, got {}", hit.y);
+    }
+
+    #[test]
+    fn test_screen_to_ground_follows_camera_target() {
+        // When the camera target moves, the centre ray should track it.
+        let camera = Camera {
+            target: Vec3::new(1.5, 0.0, -2.0),
+            zoom: 1.0,
+        };
+        let (w, h) = (800u32, 600u32);
+        let hit = camera
+            .screen_to_ground(w as f32 / 2.0, h as f32 / 2.0, w, h, 0.0)
+            .unwrap();
+        assert!((hit.x - 1.5).abs() < 1e-3, "x, got {}", hit.x);
+        assert!((hit.z + 2.0).abs() < 1e-3, "z, got {}", hit.z);
     }
 
     #[test]

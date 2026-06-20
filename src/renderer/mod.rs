@@ -291,7 +291,11 @@ impl Renderer {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    // Alpha blending so translucent overlays (e.g. the tile
+                    // hover highlight) composite over opaque terrain. Opaque
+                    // geometry uses alpha = 1.0, which blends identically to
+                    // REPLACE, so terrain is unaffected.
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),

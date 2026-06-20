@@ -177,27 +177,14 @@ impl ApplicationHandler<State> for App {
                 }
             },
 
-            // Listening for the mouse movements
+            // Track the cursor so the tile beneath it can be highlighted.
             WindowEvent::CursorMoved { position, .. } => {
-                if let Some(state_ref) = &mut self.state {
-                    // Normalize coordinates to 0.0-1.0 range based on window size
-                    let window_size = state_ref.window.inner_size();
-                    let normalized_x = position.x / window_size.width as f64;
-                    let normalized_y = position.y / window_size.height as f64;
+                state.set_cursor_position(position.x, position.y);
+            }
 
-                    // Update color based on cursor position
-                    state_ref.color = wgpu::Color {
-                        r: normalized_x,
-                        g: 0.2,
-                        b: normalized_y,
-                        a: 1.0,
-                    };
-
-                    println!(
-                        "Updated color - R: {:.2}, B: {:.2}",
-                        normalized_x, normalized_y
-                    );
-                }
+            // Cursor left the window: stop highlighting any tile.
+            WindowEvent::CursorLeft { .. } => {
+                state.clear_cursor();
             }
 
             _ => {
