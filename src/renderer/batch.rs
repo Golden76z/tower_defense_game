@@ -49,6 +49,25 @@ pub enum BatchItem {
         face: Face,
         texture_id: usize,
     },
+    /// A flat, upward-facing quad lying on the X-Z plane at `position.y`, drawn
+    /// with an arbitrary (possibly translucent) `color`. Useful for ground
+    /// decals (e.g. tower range indicators). Only `size.x` and `size.z` are used.
+    OverlayQuad {
+        position: glam::Vec3,
+        size: glam::Vec3,
+        color: [f32; 4],
+        texture_id: usize,
+    },
+    /// A single cube face drawn with an arbitrary (possibly translucent)
+    /// `color` instead of fixed directional shading. Used to build the 3D
+    /// block-highlight shell.
+    ColorFace {
+        position: glam::Vec3,
+        size: glam::Vec3,
+        face: Face,
+        color: [f32; 4],
+        texture_id: usize,
+    },
 }
 
 impl BatchItem {
@@ -58,6 +77,8 @@ impl BatchItem {
             BatchItem::CubeSides { texture_id, .. } => *texture_id,
             BatchItem::CubeTop { texture_id, .. } => *texture_id,
             BatchItem::CubeFace { texture_id, .. } => *texture_id,
+            BatchItem::OverlayQuad { texture_id, .. } => *texture_id,
+            BatchItem::ColorFace { texture_id, .. } => *texture_id,
         }
     }
 
@@ -205,6 +226,97 @@ impl BatchItem {
                     }
                 }
             }
+            BatchItem::OverlayQuad { position, size, color, .. } => {
+                let x = position.x;
+                let y = position.y;
+                let z = position.z;
+                let hx = size.x / 2.0;
+                let hz = size.z / 2.0;
+                let c = *color;
+
+                // Flat upward-facing quad at constant y, same CCW winding as a
+                // cube top face so it isn't back-face culled.
+                vertices.push(Vertex { position: [x - hx, y, z - hz], tex_coords: [0.0, 0.0], color: c });
+                vertices.push(Vertex { position: [x - hx, y, z + hz], tex_coords: [0.0, 1.0], color: c });
+                vertices.push(Vertex { position: [x + hx, y, z + hz], tex_coords: [1.0, 1.0], color: c });
+                vertices.push(Vertex { position: [x - hx, y, z - hz], tex_coords: [0.0, 0.0], color: c });
+                vertices.push(Vertex { position: [x + hx, y, z + hz], tex_coords: [1.0, 1.0], color: c });
+                vertices.push(Vertex { position: [x + hx, y, z - hz], tex_coords: [1.0, 0.0], color: c });
+            }
+            BatchItem::ColorFace { position, size, face, color, .. } => {
+                push_color_face(vertices, *face, *position, *size, *color);
+            }
+        }
+    }
+}
+
+/// Pushes the six vertices of one cube `face` with a uniform `color`.
+///
+/// The geometry (positions, winding, UVs) is identical to [`BatchItem::CubeFace`];
+/// only the color differs. Used to build translucent highlight shells.
+fn push_color_face(
+    vertices: &mut Vec<Vertex>,
+    face: Face,
+    position: glam::Vec3,
+    size: glam::Vec3,
+    color: [f32; 4],
+) {
+    let x = position.x;
+    let y = position.y;
+    let z = position.z;
+    let hx = size.x / 2.0;
+    let hy = size.y / 2.0;
+    let hz = size.z / 2.0;
+    let c = color;
+
+    match face {
+        Face::Top => {
+            vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: c });
+        }
+        Face::Bottom => {
+            vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 0.0], color: c });
+        }
+        Face::South => {
+            vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: c });
+        }
+        Face::North => {
+            vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: c });
+        }
+        Face::West => {
+            vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: c });
+        }
+        Face::East => {
+            vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
+            vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: c });
         }
     }
 }
@@ -250,6 +362,29 @@ impl SpriteBatcher {
     /// meshing to emit only the faces that are actually visible.
     pub fn add_face(&mut self, position: glam::Vec3, size: glam::Vec3, face: Face, texture_id: usize) {
         self.items.push(BatchItem::CubeFace { position, size, face, texture_id });
+    }
+
+    /// Adds a flat, upward-facing overlay quad at `position.y` drawn with the
+    /// given (possibly translucent) `color`. Useful for ground decals.
+    pub fn add_overlay_quad(&mut self, position: glam::Vec3, size: glam::Vec3, color: [f32; 4], texture_id: usize) {
+        self.items.push(BatchItem::OverlayQuad { position, size, color, texture_id });
+    }
+
+    /// Adds a single cube face tinted with an arbitrary `color`.
+    pub fn add_color_face(&mut self, position: glam::Vec3, size: glam::Vec3, face: Face, color: [f32; 4], texture_id: usize) {
+        self.items.push(BatchItem::ColorFace { position, size, face, color, texture_id });
+    }
+
+    /// Adds a translucent highlight "shell" around a box centred at `center`
+    /// with the given `size` (the top face plus the four side faces; the
+    /// bottom is omitted as it's never visible from the isometric camera).
+    ///
+    /// This works for anything occupying a box in the world — a terrain block,
+    /// or a tower floating above the ground — so the same call highlights both.
+    pub fn add_highlight_box(&mut self, center: glam::Vec3, size: glam::Vec3, color: [f32; 4], texture_id: usize) {
+        for face in [Face::Top, Face::North, Face::South, Face::East, Face::West] {
+            self.items.push(BatchItem::ColorFace { position: center, size, face, color, texture_id });
+        }
     }
 
     /// Returns a slice of the compiled batches.
@@ -498,6 +633,70 @@ mod tests {
         let sides: Vec<_> = sides.iter().map(|v| v.position).collect();
 
         assert_eq!(lateral, sides);
+    }
+
+    #[test]
+    fn test_overlay_quad_vertices_and_color() {
+        let color = [1.0, 0.9, 0.3, 0.45];
+        let item = BatchItem::OverlayQuad {
+            position: glam::Vec3::new(1.0, 0.5, 2.0),
+            size: glam::Vec3::new(0.12, 0.0, 0.12),
+            color,
+            texture_id: 5,
+        };
+        assert_eq!(item.texture_id(), 5);
+
+        let mut v = Vec::new();
+        item.generate_vertices(&mut v);
+        assert_eq!(v.len(), 6, "overlay quad is two triangles");
+        // The translucent color must be carried through to every vertex, and
+        // the quad must be flat (constant y).
+        for vert in &v {
+            assert_eq!(vert.color, color);
+            assert_eq!(vert.position[1], 0.5);
+        }
+    }
+
+    #[test]
+    fn test_color_face_matches_cube_face_geometry() {
+        // ColorFace must have identical geometry to CubeFace; only color differs.
+        let pos = glam::Vec3::new(1.0, 2.0, 3.0);
+        let size = glam::Vec3::new(2.0, 2.0, 2.0);
+        let tint = [1.0, 0.9, 0.3, 0.45];
+
+        for face in [Face::Top, Face::North, Face::South, Face::East, Face::West, Face::Bottom] {
+            let mut a = Vec::new();
+            BatchItem::CubeFace { position: pos, size, face, texture_id: 0 }.generate_vertices(&mut a);
+            let mut b = Vec::new();
+            BatchItem::ColorFace { position: pos, size, face, color: tint, texture_id: 0 }
+                .generate_vertices(&mut b);
+
+            let pa: Vec<_> = a.iter().map(|v| v.position).collect();
+            let pb: Vec<_> = b.iter().map(|v| v.position).collect();
+            assert_eq!(pa, pb, "geometry mismatch for {:?}", face);
+
+            for v in &b {
+                assert_eq!(v.color, tint, "color not applied for {:?}", face);
+            }
+        }
+    }
+
+    #[test]
+    fn test_highlight_box_emits_five_faces() {
+        let mut batcher = SpriteBatcher::new();
+        batcher.add_highlight_box(
+            glam::Vec3::new(0.0, 0.0, 0.0),
+            glam::Vec3::splat(0.12),
+            [1.0, 0.9, 0.3, 0.45],
+            5,
+        );
+        batcher.compile_batches();
+
+        let batches = batcher.batches();
+        assert_eq!(batches.len(), 1, "single texture -> one batch");
+        // 5 faces (top + 4 sides), 6 vertices each = 30. No bottom face.
+        assert_eq!(batches[0].vertex_count, 30);
+        assert_eq!(batches[0].texture_id, 5);
     }
 
     #[test]

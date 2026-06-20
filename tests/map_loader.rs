@@ -38,6 +38,24 @@ fn loads_bundled_test_map() {
 }
 
 #[test]
+fn loads_path_waypoints_that_lie_on_path_tiles() {
+    let map = load_map_from_file(test_map_path()).expect("test_map.json should load");
+
+    assert_eq!(map.path.len(), 7, "test map defines 7 waypoints");
+    assert_eq!(map.path.start(), Some(glam::Vec2::new(0.0, 1.0)));
+    assert_eq!(map.path.waypoint(6), Some(glam::Vec2::new(8.0, 9.0)));
+
+    // Every waypoint must sit on a walkable Path tile so enemies can follow it.
+    for wp in map.path.waypoints() {
+        let tile = map
+            .get_tile(wp.x as i32, wp.y as i32)
+            .expect("waypoint should be in bounds");
+        assert_eq!(tile.tile_type, TileType::Path, "waypoint {wp:?} off the path");
+        assert!(tile.walkable, "waypoint {wp:?} not walkable");
+    }
+}
+
+#[test]
 fn maps_ids_to_3d_tiles() {
     let json = r#"{ "width": 3, "height": 2, "tiles": [[0, 1, 2], [2, 1, 0]] }"#;
     let map = load_map_from_str(json).expect("valid map should load");

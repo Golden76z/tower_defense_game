@@ -1,3 +1,4 @@
+use super::path::Path;
 use super::tile::{Tile, TileType};
 use noise::{Fbm, MultiFractal, NoiseFn, SuperSimplex};
 
@@ -16,6 +17,9 @@ pub struct Map {
     pub width: i32,
     pub height: i32,
     pub tiles: Vec<Tile>,
+    /// Waypoint route enemies follow across this map (tile-space coordinates).
+    /// Empty when the map has no defined path.
+    pub path: Path,
 }
 
 impl Map {
@@ -24,6 +28,7 @@ impl Map {
             width,
             height,
             tiles: vec![Tile::default(); (width * height) as usize],
+            path: Path::default(),
         }
     }
 
