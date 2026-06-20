@@ -16,7 +16,12 @@ pub enum BatchItem {
         sprite: Sprite,
         alignment: SpriteAlignment,
     },
-    Cube {
+    CubeSides {
+        position: glam::Vec3,
+        size: glam::Vec3,
+        texture_id: usize,
+    },
+    CubeTop {
         position: glam::Vec3,
         size: glam::Vec3,
         texture_id: usize,
@@ -27,7 +32,8 @@ impl BatchItem {
     pub fn texture_id(&self) -> usize {
         match self {
             BatchItem::Sprite { sprite, .. } => sprite.texture_id,
-            BatchItem::Cube { texture_id, .. } => *texture_id,
+            BatchItem::CubeSides { texture_id, .. } => *texture_id,
+            BatchItem::CubeTop { texture_id, .. } => *texture_id,
         }
     }
 
@@ -36,7 +42,7 @@ impl BatchItem {
             BatchItem::Sprite { sprite, alignment } => {
                 vertices.extend_from_slice(&sprite.generate_vertices_aligned(*alignment));
             }
-            BatchItem::Cube { position, size, .. } => {
+            BatchItem::CubeSides { position, size, .. } => {
                 let x = position.x;
                 let y = position.y;
                 let z = position.z;
@@ -44,55 +50,63 @@ impl BatchItem {
                 let hy = size.y / 2.0;
                 let hz = size.z / 2.0;
 
-                // Push 36 vertices (6 faces * 6 vertices) forming triangles with CCW winding when viewed from outside.
+                // 5 faces (all except top): front, back, left, right, bottom
                 
-                // Front face (Z = +hz) - Bottom Left face in isometric projection
-                vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] }); // TL
-                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] }); // BL
-                vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] }); // BR
-                vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] }); // TL
-                vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] }); // BR
-                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] }); // TR
+                // Front face (Z = +hz)
+                vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] });
 
                 // Back face (Z = -hz)
-                vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] }); // TL
-                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] }); // BL
-                vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] }); // BR
-                vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] }); // TL
-                vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] }); // BR
-                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] }); // TR
+                vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] });
 
                 // Left face (X = -hx)
-                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] }); // TL
-                vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] }); // BL
-                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] }); // BR
-                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] }); // TL
-                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] }); // BR
-                vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] }); // TR
+                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] });
 
-                // Right face (X = +hx) - Bottom Right face in isometric projection
-                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] }); // TL
-                vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] }); // BL
-                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] }); // BR
-                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] }); // TL
-                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] }); // BR
-                vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] }); // TR
-
-                // Top face (Y = +hy) - Up face in isometric projection
-                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [1.0, 1.0, 1.0, 1.0] }); // TL
-                vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 1.0], color: [1.0, 1.0, 1.0, 1.0] }); // BL
-                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: [1.0, 1.0, 1.0, 1.0] }); // BR
-                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [1.0, 1.0, 1.0, 1.0] }); // TL
-                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: [1.0, 1.0, 1.0, 1.0] }); // BR
-                vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: [1.0, 1.0, 1.0, 1.0] }); // TR
+                // Right face (X = +hx)
+                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] });
 
                 // Bottom face (Y = -hy)
-                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: [0.4, 0.4, 0.4, 1.0] }); // TL
-                vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: [0.4, 0.4, 0.4, 1.0] }); // BL
-                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.4, 0.4, 0.4, 1.0] }); // BR
-                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: [0.4, 0.4, 0.4, 1.0] }); // TL
-                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.4, 0.4, 0.4, 1.0] }); // BR
-                vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 0.0], color: [0.4, 0.4, 0.4, 1.0] }); // TR
+                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: [0.4, 0.4, 0.4, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: [0.4, 0.4, 0.4, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.4, 0.4, 0.4, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: [0.4, 0.4, 0.4, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.4, 0.4, 0.4, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 0.0], color: [0.4, 0.4, 0.4, 1.0] });
+            }
+            BatchItem::CubeTop { position, size, .. } => {
+                let x = position.x;
+                let y = position.y;
+                let z = position.z;
+                let hx = size.x / 2.0;
+                let hy = size.y / 2.0;
+                let hz = size.z / 2.0;
+
+                // Top face only (Y = +hy)
+                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [1.0, 1.0, 1.0, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 1.0], color: [1.0, 1.0, 1.0, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: [1.0, 1.0, 1.0, 1.0] });
+                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [1.0, 1.0, 1.0, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: [1.0, 1.0, 1.0, 1.0] });
+                vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: [1.0, 1.0, 1.0, 1.0] });
             }
         }
     }
@@ -129,9 +143,10 @@ impl SpriteBatcher {
         self.items.push(BatchItem::Sprite { sprite, alignment });
     }
 
-    /// Adds a 3D cube/block to the batcher.
-    pub fn add_cube(&mut self, position: glam::Vec3, size: glam::Vec3, texture_id: usize) {
-        self.items.push(BatchItem::Cube { position, size, texture_id });
+    /// Adds a 3D cube/block to the batcher with separate top and side textures.
+    pub fn add_cube(&mut self, position: glam::Vec3, size: glam::Vec3, side_texture_id: usize, top_texture_id: usize) {
+        self.items.push(BatchItem::CubeSides { position, size, texture_id: side_texture_id });
+        self.items.push(BatchItem::CubeTop { position, size, texture_id: top_texture_id });
     }
 
     /// Returns a slice of the compiled batches.
@@ -243,33 +258,43 @@ mod tests {
         let item1 = BatchItem::Sprite { sprite, alignment: SpriteAlignment::Horizontal };
         assert_eq!(item1.texture_id(), 42);
 
-        let item2 = BatchItem::Cube {
+        let item2 = BatchItem::CubeSides {
             position: glam::Vec3::ZERO,
             size: glam::Vec3::ONE,
             texture_id: 100,
         };
         assert_eq!(item2.texture_id(), 100);
+
+        let item3 = BatchItem::CubeTop {
+            position: glam::Vec3::ZERO,
+            size: glam::Vec3::ONE,
+            texture_id: 55,
+        };
+        assert_eq!(item3.texture_id(), 55);
     }
 
     #[test]
     fn test_cube_vertex_generation() {
-        let item = BatchItem::Cube {
+        let sides = BatchItem::CubeSides {
             position: glam::Vec3::new(1.0, 2.0, 3.0),
             size: glam::Vec3::new(2.0, 2.0, 2.0),
             texture_id: 0,
         };
+        let top = BatchItem::CubeTop {
+            position: glam::Vec3::new(1.0, 2.0, 3.0),
+            size: glam::Vec3::new(2.0, 2.0, 2.0),
+            texture_id: 1,
+        };
         let mut vertices = Vec::new();
-        item.generate_vertices(&mut vertices);
+        sides.generate_vertices(&mut vertices);
+        top.generate_vertices(&mut vertices);
         
-        // Cube must have 36 vertices (6 faces * 6 vertices)
+        // Sides = 5 faces * 6 = 30, Top = 1 face * 6 = 6, Total = 36
         assert_eq!(vertices.len(), 36);
 
-        // Check a couple of points to verify translation/size
-        // Corner 0 is (x - hx, y + hy, z + hz) = (1 - 1, 2 + 1, 3 + 1) = (0.0, 3.0, 4.0)
+        // Check first vertex: front face TL = (x-hx, y+hy, z+hz) = (0.0, 3.0, 4.0)
         assert_eq!(vertices[0].position, [0.0, 3.0, 4.0]);
-        // Corner 1 is (x - hx, y - hy, z + hz) = (0.0, 1.0, 4.0)
         assert_eq!(vertices[1].position, [0.0, 1.0, 4.0]);
-        // Corner 2 is (x + hx, y - hy, z + hz) = (2.0, 1.0, 4.0)
         assert_eq!(vertices[2].position, [2.0, 1.0, 4.0]);
     }
 
@@ -277,40 +302,38 @@ mod tests {
     fn test_batcher_sorting_and_compilation() {
         let mut batcher = SpriteBatcher::new();
 
-        // Add items out of order of texture_id: 2, 1, 2, 0
+        // Add items: sprites with textures 2, 1, 2, and a cube with sides=0, top=1
         let s0 = Sprite::new(glam::Vec3::ZERO, glam::Vec2::ONE, 2, 0.0);
         let s1 = Sprite::new(glam::Vec3::ZERO, glam::Vec2::ONE, 1, 0.0);
         let s2 = Sprite::new(glam::Vec3::ZERO, glam::Vec2::ONE, 2, 0.0);
-        let c3 = glam::Vec3::ZERO; // Cube with texture 0
 
         batcher.add_sprite(s0, SpriteAlignment::Horizontal);
         batcher.add_sprite(s1, SpriteAlignment::Horizontal);
         batcher.add_sprite(s2, SpriteAlignment::Horizontal);
-        batcher.add_cube(c3, glam::Vec3::ONE, 0);
+        batcher.add_cube(glam::Vec3::ZERO, glam::Vec3::ONE, 0, 1);
 
-        // Compile batches on CPU
         batcher.compile_batches();
 
         let batches = batcher.batches();
-        // Since we sort by texture_id, order of batches should be:
-        // Batch 0: texture_id = 0 (1 cube = 36 vertices)
-        // Batch 1: texture_id = 1 (1 sprite = 6 vertices)
+        // After sorting by texture_id:
+        // Batch 0: texture_id = 0 (CubeSides = 30 vertices)
+        // Batch 1: texture_id = 1 (CubeTop=6 + sprite=6 = 12 vertices)
         // Batch 2: texture_id = 2 (2 sprites = 12 vertices)
         assert_eq!(batches.len(), 3);
 
         assert_eq!(batches[0].texture_id, 0);
         assert_eq!(batches[0].vertex_offset, 0);
-        assert_eq!(batches[0].vertex_count, 36);
+        assert_eq!(batches[0].vertex_count, 30);
 
         assert_eq!(batches[1].texture_id, 1);
-        assert_eq!(batches[1].vertex_offset, 36);
-        assert_eq!(batches[1].vertex_count, 6);
+        assert_eq!(batches[1].vertex_offset, 30);
+        assert_eq!(batches[1].vertex_count, 12);
 
         assert_eq!(batches[2].texture_id, 2);
         assert_eq!(batches[2].vertex_offset, 42);
         assert_eq!(batches[2].vertex_count, 12);
         
-        // Total vertices generated = 36 + 6 + 12 = 54
+        // Total = 30 + 12 + 12 = 54
         assert_eq!(batcher.vertices.len(), 54);
     }
 }

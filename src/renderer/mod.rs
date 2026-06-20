@@ -144,18 +144,20 @@ impl Renderer {
             label: Some("camera_bind_group"),
         });
 
-        // Load default/test texture
-        let test_texture = texture::Texture::load(device, queue, "assets/sprites/test.png")
+        // Load grass side texture (texture ID 0)
+        let grass_side = texture::Texture::load(device, queue, "assets/sprites/grass.png")
             .unwrap_or_else(|e| {
-                eprintln!("Warning: Failed to load test texture, using fallback. Error: {:?}", e);
-                let fallback_img = image::RgbaImage::from_pixel(32, 32, image::Rgba([255, 0, 0, 255]));
-                texture::Texture::from_image(
-                    device,
-                    queue,
-                    &image::DynamicImage::ImageRgba8(fallback_img),
-                    Some("Fallback Texture"),
-                )
-                .unwrap()
+                eprintln!("Warning: Failed to load grass side texture: {:?}", e);
+                let fallback_img = image::RgbaImage::from_pixel(16, 16, image::Rgba([139, 90, 60, 255]));
+                texture::Texture::from_image(device, queue, &image::DynamicImage::ImageRgba8(fallback_img), Some("Fallback Side")).unwrap()
+            });
+
+        // Load grass top texture (texture ID 1)
+        let grass_top = texture::Texture::load(device, queue, "assets/sprites/grass_top.png")
+            .unwrap_or_else(|e| {
+                eprintln!("Warning: Failed to load grass top texture: {:?}", e);
+                let fallback_img = image::RgbaImage::from_pixel(16, 16, image::Rgba([100, 180, 70, 255]));
+                texture::Texture::from_image(device, queue, &image::DynamicImage::ImageRgba8(fallback_img), Some("Fallback Top")).unwrap()
             });
 
         // Create texture bind group layout
@@ -182,20 +184,36 @@ impl Renderer {
                 label: Some("texture_bind_group_layout"),
             });
 
-        // Create initial texture bind group
-        let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        // Create bind group for grass side (ID 0)
+        let side_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &texture_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&test_texture.view),
+                    resource: wgpu::BindingResource::TextureView(&grass_side.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&test_texture.sampler),
+                    resource: wgpu::BindingResource::Sampler(&grass_side.sampler),
                 },
             ],
-            label: Some("diffuse_bind_group"),
+            label: Some("grass_side_bind_group"),
+        });
+
+        // Create bind group for grass top (ID 1)
+        let top_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&grass_top.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&grass_top.sampler),
+                },
+            ],
+            label: Some("grass_top_bind_group"),
         });
 
         // Create pipeline layout containing both bind group layouts
@@ -261,7 +279,7 @@ impl Renderer {
             camera_buffer,
             camera_bind_group,
             texture_bind_group_layout,
-            texture_bind_groups: vec![diffuse_bind_group],
+            texture_bind_groups: vec![side_bind_group, top_bind_group],
         }
     }
 

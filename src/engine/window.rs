@@ -137,39 +137,54 @@ impl State {
         // Clear batcher for the new frame
         self.batcher.clear();
 
-        // Generate a 10x10 grid of 3D cubes forming an animated wave
-        let grid_size = 10;
+        // --- Isometric grass terrain ---
+        // A grid of grass cubes forming a terrain with gentle height variation
+        let grid_size = 16;
+        let cube_spacing = 0.13;
+        let cube_size = glam::Vec3::new(0.12, 0.12, 0.12);
+
         for x in 0..grid_size {
             for z in 0..grid_size {
-                let pos_x = (x as f32 - grid_size as f32 / 2.0) * 0.15;
-                let pos_z = (z as f32 - grid_size as f32 / 2.0) * 0.15;
-                
-                // Animated heightmap using a combination of sine and cosine waves
-                let height = ((x as f32 * 0.5 + self.time_elapsed).sin() 
-                    + (z as f32 * 0.5 + self.time_elapsed).cos()) * 0.05;
+                let pos_x = (x as f32 - grid_size as f32 / 2.0) * cube_spacing;
+                let pos_z = (z as f32 - grid_size as f32 / 2.0) * cube_spacing;
+
+                // Gentle static terrain hills + subtle animation
+                let base_height = ((x as f32 * 0.4).sin() + (z as f32 * 0.4).cos()) * 0.03;
+                let anim_height = ((x as f32 * 0.3 + self.time_elapsed * 0.5).sin()
+                    * (z as f32 * 0.3 + self.time_elapsed * 0.5).cos())
+                    * 0.015;
+                let height = base_height + anim_height;
 
                 self.batcher.add_cube(
-                    glam::Vec3::new(pos_x, height - 0.1, pos_z),
-                    glam::Vec3::new(0.12, 0.12, 0.12),
-                    0, // Uses texture ID 0 (our test/default texture)
+                    glam::Vec3::new(pos_x, height, pos_z),
+                    cube_size,
+                    0, // side texture (grass.png)
+                    1, // top texture (grass_top.png)
                 );
             }
         }
 
-        // Add 5 orbiting vertical sprites above the grid
-        let num_sprites = 5;
+        // --- Floating marker sprites orbiting above the terrain ---
+        let num_sprites = 6;
         for i in 0..num_sprites {
-            let angle = (i as f32 / num_sprites as f32) * std::f32::consts::TAU + self.time_elapsed;
-            let radius = 0.4;
-            let pos = glam::Vec3::new(angle.cos() * radius, 0.25, angle.sin() * radius);
-            
+            let angle =
+                (i as f32 / num_sprites as f32) * std::f32::consts::TAU + self.time_elapsed * 0.6;
+            let radius = 0.5;
+            let bob = (self.time_elapsed * 2.0 + i as f32).sin() * 0.04;
+            let pos = glam::Vec3::new(
+                angle.cos() * radius,
+                0.3 + bob,
+                angle.sin() * radius,
+            );
+
             let sprite = crate::renderer::sprite::Sprite::new(
                 pos,
                 glam::Vec2::new(0.08, 0.08),
                 0,
                 angle,
             );
-            self.batcher.add_sprite(sprite, crate::renderer::sprite::SpriteAlignment::Vertical);
+            self.batcher
+                .add_sprite(sprite, crate::renderer::sprite::SpriteAlignment::Vertical);
         }
 
         // Compile batches and upload to the GPU
