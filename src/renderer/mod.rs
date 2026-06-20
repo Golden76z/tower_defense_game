@@ -93,6 +93,7 @@ pub struct Renderer {
     camera_bind_group: wgpu::BindGroup,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     texture_bind_groups: Vec<wgpu::BindGroup>,
+    depth_texture: texture::Texture,
 }
 
 impl Renderer {
@@ -160,6 +161,30 @@ impl Renderer {
                 texture::Texture::from_image(device, queue, &image::DynamicImage::ImageRgba8(fallback_img), Some("Fallback Top")).unwrap()
             });
 
+        // Load water texture (texture ID 2)
+        let water_tex = texture::Texture::load(device, queue, "assets/sprites/water.png")
+            .unwrap_or_else(|e| {
+                eprintln!("Warning: Failed to load water texture: {:?}", e);
+                let fallback_img = image::RgbaImage::from_pixel(16, 16, image::Rgba([40, 100, 200, 200])); // Semi-transparent blue
+                texture::Texture::from_image(device, queue, &image::DynamicImage::ImageRgba8(fallback_img), Some("Fallback Water")).unwrap()
+            });
+
+        // Load sand texture (texture ID 3)
+        let sand_tex = texture::Texture::load(device, queue, "assets/sprites/sand.png")
+            .unwrap_or_else(|e| {
+                eprintln!("Warning: Failed to load sand texture: {:?}", e);
+                let fallback_img = image::RgbaImage::from_pixel(16, 16, image::Rgba([230, 200, 130, 255]));
+                texture::Texture::from_image(device, queue, &image::DynamicImage::ImageRgba8(fallback_img), Some("Fallback Sand")).unwrap()
+            });
+
+        // Load rock texture (texture ID 4)
+        let rock_tex = texture::Texture::load(device, queue, "assets/sprites/rock.png")
+            .unwrap_or_else(|e| {
+                eprintln!("Warning: Failed to load rock texture: {:?}", e);
+                let fallback_img = image::RgbaImage::from_pixel(16, 16, image::Rgba([120, 120, 120, 255]));
+                texture::Texture::from_image(device, queue, &image::DynamicImage::ImageRgba8(fallback_img), Some("Fallback Rock")).unwrap()
+            });
+
         // Create texture bind group layout
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -216,6 +241,33 @@ impl Renderer {
             label: Some("grass_top_bind_group"),
         });
 
+        let water_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&water_tex.view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&water_tex.sampler) },
+            ],
+            label: Some("water_bind_group"),
+        });
+
+        let sand_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&sand_tex.view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sand_tex.sampler) },
+            ],
+            label: Some("sand_bind_group"),
+        });
+
+        let rock_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&rock_tex.view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&rock_tex.sampler) },
+            ],
+            label: Some("rock_bind_group"),
+        });
+
         // Create pipeline layout containing both bind group layouts
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -253,7 +305,13 @@ impl Renderer {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -262,6 +320,8 @@ impl Renderer {
             multiview: None,
             cache: None,
         });
+
+        let depth_texture = texture::Texture::create_depth_texture(device, config, "depth_texture");
 
         // Create vertex buffer with triangle data
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -279,7 +339,8 @@ impl Renderer {
             camera_buffer,
             camera_bind_group,
             texture_bind_group_layout,
-            texture_bind_groups: vec![side_bind_group, top_bind_group],
+            texture_bind_groups: vec![side_bind_group, top_bind_group, water_bind_group, sand_bind_group, rock_bind_group],
+            depth_texture,
         }
     }
 
@@ -316,8 +377,8 @@ impl Renderer {
         );
     }
 
-    pub fn resize(&mut self, _config: &wgpu::SurfaceConfiguration) {
-        // Uniform updates are handled externally by update_camera_uniform
+    pub fn resize(&mut self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
+        self.depth_texture = texture::Texture::create_depth_texture(device, config, "depth_texture");
     }
 
     pub fn render(
@@ -343,7 +404,14 @@ impl Renderer {
                     },
                     depth_slice: None,
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
@@ -386,7 +454,14 @@ impl Renderer {
                     },
                     depth_slice: None,
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });

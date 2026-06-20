@@ -1,2 +1,2 @@
 // Math module - Game mathematics
-// pub mod isometric;
+pub mod isometric;

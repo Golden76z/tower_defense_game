@@ -13,6 +13,7 @@ pub struct State {
     is_surface_configured: bool,
     renderer: crate::renderer::Renderer,
     batcher: crate::renderer::batch::SpriteBatcher,
+    map: crate::game::map::Map,
     pub window: Arc<Window>,
     pub color: wgpu::Color,
     pub time: crate::engine::time::Time,
@@ -92,6 +93,8 @@ impl State {
         let renderer = crate::renderer::Renderer::new(&device, &queue, &config, &camera);
         let batcher = crate::renderer::batch::SpriteBatcher::new();
 
+        let map = crate::game::map::Map::generate_island(32, 32, 1337);
+
         Ok(Self {
             surface,
             device,
@@ -100,6 +103,7 @@ impl State {
             is_surface_configured: true,
             renderer,
             batcher,
+            map,
             window,
             color: wgpu::Color {
                 r: 0.05,
@@ -120,7 +124,7 @@ impl State {
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
             self.is_surface_configured = true;
-            self.renderer.resize(&self.config);
+            self.renderer.resize(&self.device, &self.config);
             self.renderer.update_camera_uniform(&self.queue, &self.camera, width, height);
         }
     }
@@ -137,54 +141,41 @@ impl State {
         // Clear batcher for the new frame
         self.batcher.clear();
 
-        // --- Isometric grass terrain ---
-        // A grid of grass cubes forming a terrain with gentle height variation
-        let grid_size = 16;
-        let cube_spacing = 0.13;
+        // --- Isometric terrain from Map ---
+        let cube_spacing = 0.12;
         let cube_size = glam::Vec3::new(0.12, 0.12, 0.12);
+        let grid_width = self.map.width;
+        let grid_height = self.map.height;
 
-        for x in 0..grid_size {
-            for z in 0..grid_size {
-                let pos_x = (x as f32 - grid_size as f32 / 2.0) * cube_spacing;
-                let pos_z = (z as f32 - grid_size as f32 / 2.0) * cube_spacing;
+        for x in 0..grid_width {
+            for z in 0..grid_height {
+                if let Some(tile) = self.map.get_tile(x, z) {
+                    let pos_x = (x as f32 - grid_width as f32 / 2.0) * cube_spacing;
+                    let pos_z = (z as f32 - grid_height as f32 / 2.0) * cube_spacing;
+                    
+                    let height_steps = tile.grid_y;
+                    
+                    // Determine textures based on tile type
+                    // IDs: 0 = grass side, 1 = grass top, 2 = water, 3 = sand, 4 = rock
+                    let (top_tex, side_tex) = match tile.tile_type {
+                        crate::game::map::tile::TileType::Grass => (1, 0),
+                        crate::game::map::tile::TileType::Water => (2, 2),
+                        crate::game::map::tile::TileType::Sand => (3, 3),
+                        crate::game::map::tile::TileType::Rock => (4, 4),
+                        crate::game::map::tile::TileType::Path => (3, 0), // Use sand for path for now
+                    };
 
-                // Gentle static terrain hills + subtle animation
-                let base_height = ((x as f32 * 0.4).sin() + (z as f32 * 0.4).cos()) * 0.03;
-                let anim_height = ((x as f32 * 0.3 + self.time_elapsed * 0.5).sin()
-                    * (z as f32 * 0.3 + self.time_elapsed * 0.5).cos())
-                    * 0.015;
-                let height = base_height + anim_height;
-
-                self.batcher.add_cube(
-                    glam::Vec3::new(pos_x, height, pos_z),
-                    cube_size,
-                    0, // side texture (grass.png)
-                    1, // top texture (grass_top.png)
-                );
+                    let foundation_depth = -4; // Draw deep enough to hide gaps
+                    for y_step in foundation_depth..=height_steps {
+                        self.batcher.add_cube(
+                            glam::Vec3::new(pos_x, y_step as f32 * cube_size.y, pos_z),
+                            cube_size,
+                            side_tex,
+                            if y_step == height_steps { top_tex } else { side_tex },
+                        );
+                    }
+                }
             }
-        }
-
-        // --- Floating marker sprites orbiting above the terrain ---
-        let num_sprites = 6;
-        for i in 0..num_sprites {
-            let angle =
-                (i as f32 / num_sprites as f32) * std::f32::consts::TAU + self.time_elapsed * 0.6;
-            let radius = 0.5;
-            let bob = (self.time_elapsed * 2.0 + i as f32).sin() * 0.04;
-            let pos = glam::Vec3::new(
-                angle.cos() * radius,
-                0.3 + bob,
-                angle.sin() * radius,
-            );
-
-            let sprite = crate::renderer::sprite::Sprite::new(
-                pos,
-                glam::Vec2::new(0.08, 0.08),
-                0,
-                angle,
-            );
-            self.batcher
-                .add_sprite(sprite, crate::renderer::sprite::SpriteAlignment::Vertical);
         }
 
         // Compile batches and upload to the GPU
