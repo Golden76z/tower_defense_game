@@ -14,7 +14,7 @@ pub mod renderer;
 //     map::Map,
 // };
 
-// pub use math::isometric::{screen_to_world, world_to_screen};
+pub use math::isometric::{screen_to_world, world_to_screen};
 
 #[cfg(test)]
 mod tests {

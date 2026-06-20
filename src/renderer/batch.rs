@@ -9,6 +9,21 @@ pub struct SpriteDrawBatch {
     pub vertex_count: u32,
 }
 
+/// One of the six faces of an axis-aligned cube.
+///
+/// `North`/`South` are the faces perpendicular to the Z axis, `East`/`West`
+/// perpendicular to X, and `Top`/`Bottom` perpendicular to Y. Used by terrain
+/// meshing to emit only the faces that are actually visible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Face {
+    Top,
+    Bottom,
+    North, // -Z
+    South, // +Z
+    East,  // +X
+    West,  // -X
+}
+
 /// Represents an item in the sprite batch queue.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BatchItem {
@@ -26,6 +41,14 @@ pub enum BatchItem {
         size: glam::Vec3,
         texture_id: usize,
     },
+    /// A single cube face, used for face-culled terrain meshing so that
+    /// hidden interior faces are never generated.
+    CubeFace {
+        position: glam::Vec3,
+        size: glam::Vec3,
+        face: Face,
+        texture_id: usize,
+    },
 }
 
 impl BatchItem {
@@ -34,6 +57,7 @@ impl BatchItem {
             BatchItem::Sprite { sprite, .. } => sprite.texture_id,
             BatchItem::CubeSides { texture_id, .. } => *texture_id,
             BatchItem::CubeTop { texture_id, .. } => *texture_id,
+            BatchItem::CubeFace { texture_id, .. } => *texture_id,
         }
     }
 
@@ -108,6 +132,79 @@ impl BatchItem {
                 vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: [1.0, 1.0, 1.0, 1.0] });
                 vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: [1.0, 1.0, 1.0, 1.0] });
             }
+            BatchItem::CubeFace { position, size, face, .. } => {
+                let x = position.x;
+                let y = position.y;
+                let z = position.z;
+                let hx = size.x / 2.0;
+                let hy = size.y / 2.0;
+                let hz = size.z / 2.0;
+
+                // Faces share the exact winding (CCW) and shading of the full
+                // cube above, so a culled mesh is visually identical to the
+                // old stacked-cube version. Side faces are tinted to fake
+                // simple directional lighting.
+                match face {
+                    Face::Top => {
+                        let c = [1.0, 1.0, 1.0, 1.0];
+                        vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: c });
+                    }
+                    Face::Bottom => {
+                        let c = [0.4, 0.4, 0.4, 1.0];
+                        vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 0.0], color: c });
+                    }
+                    // South face (Z = +hz) — matches the cube "front" face.
+                    Face::South => {
+                        let c = [0.6, 0.6, 0.6, 1.0];
+                        vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: c });
+                    }
+                    // North face (Z = -hz) — matches the cube "back" face.
+                    Face::North => {
+                        let c = [0.6, 0.6, 0.6, 1.0];
+                        vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: c });
+                    }
+                    // West face (X = -hx) — matches the cube "left" face.
+                    Face::West => {
+                        let c = [0.8, 0.8, 0.8, 1.0];
+                        vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: c });
+                    }
+                    // East face (X = +hx) — matches the cube "right" face.
+                    Face::East => {
+                        let c = [0.8, 0.8, 0.8, 1.0];
+                        vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
+                        vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: c });
+                    }
+                }
+            }
         }
     }
 }
@@ -147,6 +244,12 @@ impl SpriteBatcher {
     pub fn add_cube(&mut self, position: glam::Vec3, size: glam::Vec3, side_texture_id: usize, top_texture_id: usize) {
         self.items.push(BatchItem::CubeSides { position, size, texture_id: side_texture_id });
         self.items.push(BatchItem::CubeTop { position, size, texture_id: top_texture_id });
+    }
+
+    /// Adds a single cube face to the batcher. Used by face-culled terrain
+    /// meshing to emit only the faces that are actually visible.
+    pub fn add_face(&mut self, position: glam::Vec3, size: glam::Vec3, face: Face, texture_id: usize) {
+        self.items.push(BatchItem::CubeFace { position, size, face, texture_id });
     }
 
     /// Returns a slice of the compiled batches.
@@ -335,5 +438,78 @@ mod tests {
         
         // Total = 30 + 12 + 12 = 54
         assert_eq!(batcher.vertices.len(), 54);
+    }
+
+    #[test]
+    fn test_cube_face_vertex_count() {
+        // Every single face must emit exactly 6 vertices (two triangles).
+        for face in [Face::Top, Face::Bottom, Face::North, Face::South, Face::East, Face::West] {
+            let item = BatchItem::CubeFace {
+                position: glam::Vec3::new(1.0, 2.0, 3.0),
+                size: glam::Vec3::new(2.0, 2.0, 2.0),
+                face,
+                texture_id: 7,
+            };
+            assert_eq!(item.texture_id(), 7);
+
+            let mut v = Vec::new();
+            item.generate_vertices(&mut v);
+            assert_eq!(v.len(), 6, "face {:?} should emit 6 vertices", face);
+        }
+    }
+
+    #[test]
+    fn test_cube_face_top_matches_cube_top() {
+        // CubeFace::Top must be identical to the dedicated CubeTop face so a
+        // culled mesh looks exactly like the old stacked-cube version.
+        let pos = glam::Vec3::new(1.0, 2.0, 3.0);
+        let size = glam::Vec3::new(2.0, 2.0, 2.0);
+
+        let mut a = Vec::new();
+        BatchItem::CubeTop { position: pos, size, texture_id: 0 }.generate_vertices(&mut a);
+        let mut b = Vec::new();
+        BatchItem::CubeFace { position: pos, size, face: Face::Top, texture_id: 0 }
+            .generate_vertices(&mut b);
+
+        let pa: Vec<_> = a.iter().map(|v| v.position).collect();
+        let pb: Vec<_> = b.iter().map(|v| v.position).collect();
+        assert_eq!(pa, pb);
+    }
+
+    #[test]
+    fn test_cube_face_sides_match_cube_sides() {
+        // The four side faces, combined, must reproduce the front/back/left/
+        // right faces of CubeSides (which also includes a bottom face).
+        let pos = glam::Vec3::new(1.0, 2.0, 3.0);
+        let size = glam::Vec3::new(2.0, 2.0, 2.0);
+
+        let mut full = Vec::new();
+        BatchItem::CubeSides { position: pos, size, texture_id: 0 }.generate_vertices(&mut full);
+        // CubeSides = front, back, left, right, bottom = 5 faces * 6 = 30.
+        // The first 24 vertices are the four lateral faces (bottom is last).
+        let lateral: Vec<_> = full.iter().take(24).map(|v| v.position).collect();
+
+        let mut sides = Vec::new();
+        // Order matters: CubeSides emits front(+Z), back(-Z), left(-X), right(+X).
+        for face in [Face::South, Face::North, Face::West, Face::East] {
+            BatchItem::CubeFace { position: pos, size, face, texture_id: 0 }
+                .generate_vertices(&mut sides);
+        }
+        let sides: Vec<_> = sides.iter().map(|v| v.position).collect();
+
+        assert_eq!(lateral, sides);
+    }
+
+    #[test]
+    fn test_add_face_queues_and_batches() {
+        let mut batcher = SpriteBatcher::new();
+        batcher.add_face(glam::Vec3::ZERO, glam::Vec3::ONE, Face::East, 4);
+        batcher.add_face(glam::Vec3::ZERO, glam::Vec3::ONE, Face::Top, 4);
+        batcher.compile_batches();
+
+        let batches = batcher.batches();
+        assert_eq!(batches.len(), 1, "same texture_id should merge into one batch");
+        assert_eq!(batches[0].texture_id, 4);
+        assert_eq!(batches[0].vertex_count, 12);
     }
 }
