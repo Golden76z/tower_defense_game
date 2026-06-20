@@ -96,7 +96,20 @@ impl State {
         let renderer = crate::renderer::Renderer::new(&device, &queue, &config, &camera);
         let batcher = crate::renderer::batch::SpriteBatcher::new();
 
-        let map = crate::game::map::Map::generate_island(20, 20, 1337);
+        // Prefer a hand-authored map from JSON; fall back to procedural
+        // generation if the file is missing or invalid so the game always
+        // boots with *something* to render.
+        const MAP_PATH: &str = "assets/maps/test_map.json";
+        let map = match crate::game::map::load_map_from_file(MAP_PATH) {
+            Ok(map) => {
+                log::info!("Loaded map from {MAP_PATH} ({}x{})", map.width, map.height);
+                map
+            }
+            Err(e) => {
+                log::warn!("Failed to load map from {MAP_PATH}: {e}. Falling back to procedural island.");
+                crate::game::map::Map::generate_island(20, 20, 1337)
+            }
+        };
 
         // Build the static terrain mesh once. It only needs rebuilding when
         // the map itself changes, not every frame.
