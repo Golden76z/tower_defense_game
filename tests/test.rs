@@ -76,11 +76,13 @@ fn test_batcher_performance_and_correctness() {
     }
 
     for i in 0..num_cubes {
-        let texture_id = (i + 2) % 4; // texture ids: 2, 3, 0, 1
+        let side_tex = (i + 2) % 4;
+        let top_tex = (i + 3) % 4;
         batcher.add_cube(
             Vec3::new(0.0, i as f32, 0.0),
             Vec3::new(1.0, 1.0, 1.0),
-            texture_id,
+            side_tex,
+            top_tex,
         );
     }
     let duration_add = start_add.elapsed();
@@ -89,13 +91,13 @@ fn test_batcher_performance_and_correctness() {
     let start_compile = Instant::now();
     batcher.compile_batches();
     let duration_compile = start_compile.elapsed();
-    println!("Compiling 1000 items took: {:?}", duration_compile);
+    println!("Compiling 1500 items took: {:?}", duration_compile);
 
     // Verify batches
     let batches = batcher.batches();
     
-    // Since texture_id can only be 0, 1, 2, or 3, sorting by texture_id
-    // must result in exactly 4 batches (one for each texture_id)
+    // Texture IDs 0-3 used by sprites and cube sides/tops
+    // All 4 texture IDs should be present
     assert_eq!(batches.len(), 4);
 
     let mut total_vertices = 0;
@@ -107,8 +109,8 @@ fn test_batcher_performance_and_correctness() {
 
     // Expected total vertices:
     // 500 sprites * 6 vertices = 3000 vertices
-    // 500 cubes * 36 vertices = 18000 vertices
-    // Total = 21000 vertices
+    // 500 cubes: sides = 500 * 30 = 15000, tops = 500 * 6 = 3000
+    // Total = 3000 + 15000 + 3000 = 21000 vertices
     assert_eq!(total_vertices, 21000);
     assert_eq!(batcher.vertices().len(), 21000);
 
