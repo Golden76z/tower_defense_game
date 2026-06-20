@@ -17,6 +17,11 @@ pub struct State {
     /// Cached static terrain mesh, rebuilt only when the map changes.
     terrain_batcher: crate::renderer::batch::SpriteBatcher,
     map: crate::game::map::Map,
+    enemy_manager: crate::game::enemies::EnemyManager,
+    /// 3D model for the enemy.
+    enemy_model: crate::renderer::model::Model,
+    /// Texture id for the enemy sprite.
+    enemy_texture_id: usize,
     /// Texture id of a 1x1 white texture used to tint overlay quads.
     highlight_texture_id: usize,
     /// Latest cursor position in physical pixels, or `None` when the cursor is
@@ -119,6 +124,23 @@ impl State {
                 .expect("1x1 white texture is always valid");
         let highlight_texture_id = renderer.register_texture(&device, &white_texture);
 
+        // Load the enemy texture
+        let enemy_image = image::open("assets/sprites/enemy.png")
+            .expect("Failed to load enemy texture")
+            .to_rgba8();
+        let enemy_texture = crate::renderer::texture::Texture::from_image(
+            &device,
+            &queue,
+            &image::DynamicImage::ImageRgba8(enemy_image),
+            Some("enemy"),
+        )
+        .expect("enemy texture should be valid");
+        let enemy_texture_id = renderer.register_texture(&device, &enemy_texture);
+
+        // Load 3D model for enemies
+        let enemy_model = crate::renderer::model::Model::load("assets/models/enemy.obj")
+            .expect("Failed to load enemy.obj model");
+
         // Prefer a hand-authored map from JSON; fall back to procedural
         // generation if the file is missing or invalid so the game always
         // boots with *something* to render.
@@ -139,6 +161,19 @@ impl State {
         let mut terrain_batcher = crate::renderer::batch::SpriteBatcher::new();
         build_terrain_mesh(&map, &mut terrain_batcher, &device, &queue);
 
+        let mut enemy_manager = crate::game::enemies::EnemyManager::new();
+        
+        // Spawn test enemies if we have a path
+        if let Some(start_pos) = map.path.start() {
+            for _i in 0..5 {
+                let enemy = crate::game::enemies::basic_enemy::BasicEnemy::new(start_pos);
+                // Offset them visually or just spawn them? They will overlap if spawned at the exact same time.
+                // We will just let them overlap for now, or we can space them out by not spawning them all at once.
+                // We'll spawn one for now to test, actually let's spawn a few.
+                enemy_manager.spawn_enemy(Box::new(enemy));
+            }
+        }
+
         Ok(Self {
             surface,
             device,
@@ -149,6 +184,9 @@ impl State {
             batcher,
             terrain_batcher,
             map,
+            enemy_manager,
+            enemy_model,
+            enemy_texture_id,
             highlight_texture_id,
             cursor_pos: None,
             hovered_tile: None,
@@ -215,6 +253,15 @@ impl State {
     fn fixed_update(&mut self, dt: f32) {
         self.time_elapsed += dt;
         self.camera_controller.update_camera(&mut self.camera, dt);
+        
+        // Spawn a new enemy every 2 seconds for testing
+        if (self.time_elapsed % 2.0) < dt {
+            if let Some(start_pos) = self.map.path.start() {
+                self.enemy_manager.spawn_enemy(Box::new(crate::game::enemies::basic_enemy::BasicEnemy::new(start_pos)));
+            }
+        }
+        
+        self.enemy_manager.update(dt, &self.map.path);
     }
 
     /// Per-frame render preparation: upload the camera matrix, resolve the
@@ -253,6 +300,68 @@ impl State {
                     self.highlight_texture_id,
                 );
             }
+        }
+
+        // Draw enemies
+        for enemy in self.enemy_manager.get_enemies() {
+            let pos = enemy.get_position();
+            let health = enemy.get_health();
+            
+            // Convert grid pos to world pos
+            let world_x = (pos.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
+            let world_z = (pos.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
+            
+            // Determine Y based on terrain at that grid pos (or just slightly above path level)
+            // The path is at grid_y = 0 usually, but let's query the map.
+            // Since path positions are continuous, we sample the closest integer tile.
+            let gx = pos.x.round() as i32;
+            let gy = pos.y.round() as i32;
+            let tile_y = self.map.get_tile(gx, gy).map(|t| t.grid_y).unwrap_or(0);
+            
+            let world_y = tile_y as f32 * TILE_WORLD_SIZE + TILE_WORLD_SIZE * 0.5 + 0.05;
+
+            // Draw enemy model
+            let vertices = self.enemy_model.generate_vertices(
+                glam::Vec3::new(world_x, world_y, world_z),
+                0.05, // scale
+                self.time_elapsed * 2.0, // rotation for visual effect
+                [1.0, 0.2, 0.2, 1.0], // color
+            );
+            self.batcher.add_model(vertices, self.highlight_texture_id);
+
+            // Draw health bar
+            let max_health = 100.0; // Hardcoded for now based on BasicEnemy
+            let health_pct = (health / max_health).clamp(0.0, 1.0);
+            
+            let bar_width = 0.08;
+            let bar_height = 0.01;
+            let bar_y = world_y + 0.06; // Above the enemy
+            
+            // Red background (missing health)
+            self.batcher.add_sprite(
+                crate::renderer::sprite::Sprite::new_colored(
+                    glam::Vec3::new(world_x, bar_y, world_z),
+                    glam::Vec2::new(bar_width, bar_height),
+                    self.highlight_texture_id,
+                    0.0,
+                    [1.0, 0.0, 0.0, 1.0], // Red
+                ),
+                crate::renderer::sprite::SpriteAlignment::Billboard,
+            );
+            
+            // Green foreground (current health)
+            let current_bar_width = bar_width * health_pct;
+            let offset_x = (bar_width - current_bar_width) / 2.0; // Left-align the green bar
+            self.batcher.add_sprite(
+                crate::renderer::sprite::Sprite::new_colored(
+                    glam::Vec3::new(world_x - offset_x, bar_y + 0.001, world_z),
+                    glam::Vec2::new(current_bar_width, bar_height),
+                    self.highlight_texture_id,
+                    0.0,
+                    [0.0, 1.0, 0.0, 1.0], // Green
+                ),
+                crate::renderer::sprite::SpriteAlignment::Billboard,
+            );
         }
 
         // Debug: draw the enemy path as ground markers when enabled.

@@ -1,4 +1,5 @@
 pub mod batch;
+pub mod model;
 pub mod sprite;
 pub mod texture;
 pub mod camera;
@@ -7,7 +8,7 @@ use glam::Mat4;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
     pub position: [f32; 3],
     pub tex_coords: [f32; 2],
