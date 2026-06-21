@@ -69,6 +69,10 @@ impl Enemy for BasicEnemy {
     fn get_reward(&self) -> u32 {
         self.reward
     }
+
+    fn has_reached_end(&self, path: &Path) -> bool {
+        path.is_finished(self.waypoint_index)
+    }
 }
 
 #[cfg(test)]

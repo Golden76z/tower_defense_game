@@ -73,4 +73,7 @@ pub trait Enemy {
 
     /// Gets the gold reward for defeating this enemy.
     fn get_reward(&self) -> u32;
+
+    /// Checks if the enemy has reached the end of the path.
+    fn has_reached_end(&self, path: &Path) -> bool;
 }

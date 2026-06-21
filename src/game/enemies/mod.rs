@@ -20,25 +20,30 @@ impl EnemyManager {
         self.enemies.push(enemy);
     }
 
-    pub fn update(&mut self, dt: f32, path: &Path) -> Vec<(glam::Vec2, u32)> {
+    pub fn update(&mut self, dt: f32, path: &Path) -> (Vec<(glam::Vec2, u32)>, u32) {
         // Update all enemies
         for enemy in &mut self.enemies {
             enemy.update(dt, path);
         }
 
-        // Identify, collect, and remove dead enemies
+        // Identify, collect, and remove dead and escaped enemies
         let mut killed = Vec::new();
         let mut alive = Vec::new();
+        let mut escaped = 0;
         for enemy in std::mem::take(&mut self.enemies) {
             if enemy.is_alive() {
-                alive.push(enemy);
+                if enemy.has_reached_end(path) {
+                    escaped += 1;
+                } else {
+                    alive.push(enemy);
+                }
             } else {
                 killed.push((enemy.get_position(), enemy.get_reward()));
             }
         }
         self.enemies = alive;
 
-        killed
+        (killed, escaped)
     }
 
     pub fn get_enemies(&self) -> &[Box<dyn Enemy>] {
@@ -74,7 +79,7 @@ mod tests {
         }
 
         // Update to remove dead enemies
-        manager.update(0.1, &path);
+        let _ = manager.update(0.1, &path);
 
         // Verify 5 remain
         assert_eq!(manager.count(), 5);
@@ -96,14 +101,37 @@ mod tests {
         manager.enemies[2].take_damage(100.0);
 
         // Update
-        let killed = manager.update(0.1, &path);
+        let (killed, escaped) = manager.update(0.1, &path);
 
         // Should return 2 rewards, each of 10 gold
         assert_eq!(killed.len(), 2);
         assert_eq!(killed[0].1, 10);
         assert_eq!(killed[1].1, 10);
+        assert_eq!(escaped, 0);
 
         // 1 enemy remains alive
         assert_eq!(manager.count(), 1);
+    }
+
+    #[test]
+    fn test_enemy_manager_escape_detection() {
+        let mut manager = EnemyManager::new();
+        let path = Path::new(vec![Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0)]);
+
+        // Spawn a basic enemy at (0.0, 0.0)
+        manager.spawn_enemy(Box::new(BasicEnemy::new(Vec2::new(0.0, 0.0))));
+        assert_eq!(manager.count(), 1);
+
+        // Run updates in small timesteps (like a real game loop) until the enemy escapes
+        let mut elapsed = 0.0;
+        let mut escaped = 0;
+        while elapsed < 2.0 && manager.count() > 0 {
+            let (_, esc) = manager.update(0.016, &path);
+            escaped += esc;
+            elapsed += 0.016;
+        }
+
+        assert_eq!(escaped, 1);
+        assert_eq!(manager.count(), 0);
     }
 }
