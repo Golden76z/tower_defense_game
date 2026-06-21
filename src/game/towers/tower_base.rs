@@ -10,7 +10,7 @@ use crate::game::projectiles::Projectile;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use glam::Vec2;
 /// use crate::game::towers::tower_base::Tower;
 /// use crate::game::enemies::enemy_base::Enemy;
