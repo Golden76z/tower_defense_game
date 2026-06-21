@@ -58,10 +58,18 @@ pub struct State {
     pub player_stats: crate::game::player_stats::PlayerStats,
     /// Feedback status message shown in the window title.
     pub placement_status: String,
+    /// Wave manager to coordinate enemy spawning.
+    pub wave_manager: crate::game::wave_manager::WaveManager,
     /// Gold reward popup sprites.
     popups: Vec<GoldPopup>,
     /// Texture id for the gold popup sprite.
     popup_texture_id: usize,
+    /// Texture for the wave UI display.
+    wave_ui_texture: crate::renderer::texture::Texture,
+    /// Texture id for the wave UI display.
+    wave_ui_texture_id: usize,
+    /// Text of the last wave UI texture upload.
+    last_wave_ui_text: String,
 }
 
 impl State {
@@ -171,6 +179,18 @@ impl State {
         .expect("gold popup texture should be valid");
         let popup_texture_id = renderer.register_texture(&device, &popup_texture);
 
+        // Generate and register wave UI texture
+        let last_wave_ui_text = "WAVE 1 INCOMING".to_string();
+        let wave_ui_image = create_text_texture(&last_wave_ui_text, 160, 24, [255, 220, 0, 255]);
+        let wave_ui_texture = crate::renderer::texture::Texture::from_image(
+            &device,
+            &queue,
+            &image::DynamicImage::ImageRgba8(wave_ui_image),
+            Some("wave_ui"),
+        )
+        .expect("wave UI texture should be valid");
+        let wave_ui_texture_id = renderer.register_texture(&device, &wave_ui_texture);
+
         // Load 3D model for the tower
         let tower_model = crate::renderer::model::Model::load("assets/models/tower.obj")
             .expect("Failed to load tower.obj model");
@@ -203,13 +223,11 @@ impl State {
         let mut terrain_batcher = crate::renderer::batch::SpriteBatcher::new();
         build_terrain_mesh(&map, &mut terrain_batcher, &device, &queue);
 
-        let mut enemy_manager = crate::game::enemies::EnemyManager::new();
-        
-        // Spawn test enemies if we have a path
-        if let Some(start_pos) = map.path.start() {
-            let enemy = crate::game::enemies::basic_enemy::BasicEnemy::new(start_pos);
-            enemy_manager.spawn_enemy(Box::new(enemy));
-        }
+        let enemy_manager = crate::game::enemies::EnemyManager::new();
+
+        let waves = crate::game::wave_manager::WaveManager::get_default_waves();
+        let mut wave_manager = crate::game::wave_manager::WaveManager::new(waves);
+        wave_manager.start_wave(0);
 
         let state = Self {
             surface,
@@ -247,8 +265,12 @@ impl State {
             economy: crate::game::economy::Economy::new(200),
             player_stats: crate::game::player_stats::PlayerStats::new(5),
             placement_status: "Ready".to_string(),
+            wave_manager,
             popups: Vec::new(),
             popup_texture_id,
+            wave_ui_texture,
+            wave_ui_texture_id,
+            last_wave_ui_text,
         };
 
         state.update_window_title();
@@ -268,13 +290,15 @@ impl State {
     }
 
     pub fn update_window_title(&self) {
+        let wave_msg = self.wave_manager.get_status_message();
         let title = format!(
-            "Isoguard - Lives: {}/{} | Gold: {} | Basic Tower Cost: {} | Status: {}",
+            "Isoguard - Lives: {}/{} | Gold: {} | Basic Tower Cost: {} | Status: {} | {}",
             self.player_stats.lives,
             self.player_stats.max_lives,
             self.economy.money,
             crate::game::towers::manager::TowerType::Basic.cost(),
-            self.placement_status
+            self.placement_status,
+            wave_msg
         );
         self.window.set_title(&title);
     }
@@ -319,11 +343,27 @@ impl State {
         self.time_elapsed += dt;
         self.camera_controller.update_camera(&mut self.camera, dt);
         
-        // Spawn a new enemy every 2 seconds for testing
-        if (self.time_elapsed % 2.0) < dt {
-            if let Some(start_pos) = self.map.path.start() {
-                self.enemy_manager.spawn_enemy(Box::new(crate::game::enemies::basic_enemy::BasicEnemy::new(start_pos)));
+        let active_enemy_count = self.enemy_manager.get_enemies().len();
+        let prev_state = self.wave_manager.state;
+        let prev_wave_num = self.wave_manager.current_wave_number();
+        let prev_timer = self.wave_manager.inter_wave_timer;
+
+        if let Some(enemy_type) = self.wave_manager.update(dt, active_enemy_count) {
+            match enemy_type {
+                crate::game::wave_manager::EnemyType::Basic => {
+                    if let Some(start_pos) = self.map.path.start() {
+                        let enemy = crate::game::enemies::basic_enemy::BasicEnemy::new(start_pos);
+                        self.enemy_manager.spawn_enemy(Box::new(enemy));
+                    }
+                }
             }
+        }
+
+        let state_changed = prev_state != self.wave_manager.state;
+        let wave_num_changed = prev_wave_num != self.wave_manager.current_wave_number();
+        let timer_changed = (prev_timer * 10.0).round() != (self.wave_manager.inter_wave_timer * 10.0).round();
+        if state_changed || wave_num_changed || timer_changed {
+            self.update_window_title();
         }
         
         let (killed, escaped) = self.enemy_manager.update(dt, &self.map.path);
@@ -383,7 +423,7 @@ impl State {
 
         // Update gold popups
         for popup in &mut self.popups {
-            popup.position.y += 0.04 * dt; // Float upward
+            popup.position.y += 0.08 * dt; // Float upward
             popup.lifetime -= dt;
         }
         self.popups.retain(|p| p.lifetime > 0.0);
@@ -576,7 +616,7 @@ impl State {
 
         // Draw popups
         for popup in &self.popups {
-            let size = glam::Vec2::new(0.06, 0.03); // Billboard size for the +10 popup
+            let size = glam::Vec2::new(0.12, 0.06); // Billboard size for the +10 popup
             let alpha = popup.lifetime.clamp(0.0, 1.0);
             self.batcher.add_sprite(
                 crate::renderer::sprite::Sprite::new_colored(
@@ -589,6 +629,77 @@ impl State {
                 crate::renderer::sprite::SpriteAlignment::Billboard,
             );
         }
+
+        // --- Wave Status UI ---
+        let (ui_text, ui_color) = if !self.player_stats.is_alive() {
+            ("GAME OVER!".to_string(), [255, 50, 50, 255])
+        } else {
+            match self.wave_manager.state {
+                crate::game::wave_manager::WaveState::NotStarted => {
+                    ("WAITING TO START".to_string(), [255, 220, 0, 255])
+                }
+                crate::game::wave_manager::WaveState::Spawning | crate::game::wave_manager::WaveState::WaitingForClean => {
+                    (format!("WAVE {}", self.wave_manager.current_wave_number()), [255, 220, 0, 255])
+                }
+                crate::game::wave_manager::WaveState::InterWaveDelay => {
+                    if self.wave_manager.inter_wave_timer > 7.0 {
+                        (format!("WAVE {} COMPLETE!", self.wave_manager.current_wave_number()), [0, 255, 100, 255])
+                    } else {
+                        let next_wave = self.wave_manager.current_wave_number() + 1;
+                        (format!("WAVE {} INCOMING: {:.1}S", next_wave, self.wave_manager.inter_wave_timer), [255, 120, 0, 255])
+                    }
+                }
+                crate::game::wave_manager::WaveState::CompletedAll => {
+                    ("VICTORY! ALL WAVES COMPLETED".to_string(), [0, 255, 255, 255])
+                }
+            }
+        };
+
+        let cache_key = format!("{}_{}_{}_{}_{}", ui_text, ui_color[0], ui_color[1], ui_color[2], ui_color[3]);
+        if cache_key != self.last_wave_ui_text {
+            let img = create_text_texture(&ui_text, 160, 24, ui_color);
+            let size = wgpu::Extent3d {
+                width: 160,
+                height: 24,
+                depth_or_array_layers: 1,
+            };
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    aspect: wgpu::TextureAspect::All,
+                    texture: &self.wave_ui_texture.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                },
+                &img,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * 160),
+                    rows_per_image: Some(24),
+                },
+                size,
+            );
+            self.last_wave_ui_text = cache_key;
+        }
+
+        // Draw Wave UI Billboard at top-center of the screen
+        let up = glam::Vec3::new(-1.0, 2.0, -1.0).normalize();
+        let ortho_height = 2.0 / self.camera.zoom;
+        let pixel_scale = ortho_height / self.config.height as f32;
+        let sprite_size = glam::Vec2::new(480.0 * pixel_scale, 72.0 * pixel_scale);
+        let margin_y = 20.0; // 20 pixels from the top edge
+        let offset_from_target = (ortho_height * 0.5) - (sprite_size.y * 0.5) - (margin_y * pixel_scale);
+        let pos = self.camera.target + up * offset_from_target;
+
+        self.batcher.add_sprite(
+            crate::renderer::sprite::Sprite::new_colored(
+                pos,
+                sprite_size,
+                self.wave_ui_texture_id,
+                0.0,
+                [1.0, 1.0, 1.0, 1.0], // Tint
+            ),
+            crate::renderer::sprite::SpriteAlignment::Billboard,
+        );
 
         // Debug: draw the enemy path as ground markers when enabled.
         if self.show_path_debug {
@@ -987,6 +1098,114 @@ fn create_gold_texture(text: &str) -> image::RgbaImage {
                 let ny = y + dy;
                 if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
                     if !yellow_pixels.contains(&(nx, ny)) {
+                        img.put_pixel(nx as u32, ny as u32, image::Rgba([0, 0, 0, 255]));
+                    }
+                }
+            }
+        }
+    }
+    
+    img
+}
+
+fn create_text_texture(text: &str, width: u32, height: u32, color_rgba: [u8; 4]) -> image::RgbaImage {
+    let mut img = image::RgbaImage::new(width, height);
+    if text.is_empty() {
+        return img;
+    }
+    
+    // Tiny 3x5 font
+    let get_char_bitmap = |c: char| -> &'static [u8; 5] {
+        match c {
+            '0' => &[7, 5, 5, 5, 7],
+            '1' => &[2, 2, 2, 2, 2],
+            '2' => &[7, 1, 7, 4, 7],
+            '3' => &[7, 1, 7, 1, 7],
+            '4' => &[5, 5, 7, 1, 1],
+            '5' => &[7, 4, 7, 1, 7],
+            '6' => &[7, 4, 7, 5, 7],
+            '7' => &[7, 1, 1, 1, 1],
+            '8' => &[7, 5, 7, 5, 7],
+            '9' => &[7, 5, 7, 1, 7],
+            'A' | 'a' => &[2, 5, 7, 5, 5],
+            'B' | 'b' => &[6, 5, 6, 5, 6],
+            'C' | 'c' => &[7, 4, 4, 4, 7],
+            'D' | 'd' => &[6, 5, 5, 5, 6],
+            'E' | 'e' => &[7, 4, 6, 4, 7],
+            'F' | 'f' => &[7, 4, 6, 4, 4],
+            'G' | 'g' => &[7, 4, 5, 5, 7],
+            'H' | 'h' => &[5, 5, 7, 5, 5],
+            'I' | 'i' => &[7, 2, 2, 2, 7],
+            'J' | 'j' => &[1, 1, 1, 5, 2],
+            'K' | 'k' => &[5, 5, 6, 5, 5],
+            'L' | 'l' => &[4, 4, 4, 4, 7],
+            'M' | 'm' => &[5, 7, 5, 5, 5],
+            'N' | 'n' => &[5, 7, 7, 5, 5],
+            'O' | 'o' => &[7, 5, 5, 5, 7],
+            'P' | 'p' => &[7, 5, 7, 4, 4],
+            'Q' | 'q' => &[7, 5, 5, 7, 1],
+            'R' | 'r' => &[6, 5, 6, 5, 5],
+            'S' | 's' => &[7, 4, 7, 1, 7],
+            'T' | 't' => &[7, 2, 2, 2, 2],
+            'U' | 'u' => &[5, 5, 5, 5, 7],
+            'V' | 'v' => &[5, 5, 5, 5, 2],
+            'W' | 'w' => &[5, 5, 5, 7, 5],
+            'X' | 'x' => &[5, 5, 2, 5, 5],
+            'Y' | 'y' => &[5, 5, 2, 2, 2],
+            'Z' | 'z' => &[7, 1, 2, 4, 7],
+            '.' => &[0, 0, 0, 0, 2],
+            ':' => &[0, 2, 0, 2, 0],
+            '!' => &[2, 2, 2, 0, 2],
+            '+' => &[2, 2, 7, 2, 2],
+            '-' => &[0, 0, 7, 0, 0],
+            _ => &[0, 0, 0, 0, 0],
+        }
+    };
+    
+    let text_width = text.len() as i32 * 4 - 1;
+    let start_x = (width as i32 - text_width) / 2;
+    let start_y = (height as i32 - 5) / 2;
+    
+    for (char_idx, c) in text.chars().enumerate() {
+        let bitmap = get_char_bitmap(c);
+        let cx = start_x + char_idx as i32 * 4;
+        
+        for row in 0..5 {
+            let row_val = bitmap[row];
+            let cy = start_y + row as i32;
+            for col in 0..3 {
+                let bit = (row_val >> (2 - col)) & 1;
+                if bit == 1 {
+                    let px = cx + col;
+                    if px >= 0 && px < width as i32 && cy >= 0 && cy < height as i32 {
+                        img.put_pixel(px as u32, cy as u32, image::Rgba(color_rgba));
+                    }
+                }
+            }
+        }
+    }
+    
+    // Outline pass: for any pixel of our text color, check its 8 neighbors. If they are empty, make them black.
+    let mut text_pixels = std::collections::HashSet::new();
+    for y in 0..height {
+        for x in 0..width {
+            let p = img.get_pixel(x, y);
+            if p[3] > 0 && p[0] == color_rgba[0] && p[1] == color_rgba[1] && p[2] == color_rgba[2] {
+                text_pixels.insert((x as i32, y as i32));
+            }
+        }
+    }
+    
+    for &(x, y) in &text_pixels {
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let nx = x + dx;
+                let ny = y + dy;
+                if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
+                    if !text_pixels.contains(&(nx, ny)) {
                         img.put_pixel(nx as u32, ny as u32, image::Rgba([0, 0, 0, 255]));
                     }
                 }
