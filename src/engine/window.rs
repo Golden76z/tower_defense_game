@@ -20,6 +20,8 @@ pub struct State {
     renderer: crate::renderer::Renderer,
     /// Per-frame batcher for dynamic objects (towers, enemies, projectiles).
     batcher: crate::renderer::batch::SpriteBatcher,
+    /// Per-frame batcher for UI overlays (rendered on top of everything without depth test).
+    ui_batcher: crate::renderer::batch::SpriteBatcher,
     /// Cached static terrain mesh, rebuilt only when the map changes.
     terrain_batcher: crate::renderer::batch::SpriteBatcher,
     map: crate::game::map::Map,
@@ -70,6 +72,10 @@ pub struct State {
     wave_ui_texture_id: usize,
     /// Text of the last wave UI texture upload.
     last_wave_ui_text: String,
+    /// The current game state.
+    pub game_state: crate::game::game_state::GameState,
+    /// Whether the player has continued playing in sandbox mode after victory.
+    pub continued_after_victory: bool,
 }
 
 impl State {
@@ -142,6 +148,7 @@ impl State {
         let camera_controller = crate::renderer::camera::CameraController::default();
         let mut renderer = crate::renderer::Renderer::new(&device, &queue, &config, &camera);
         let batcher = crate::renderer::batch::SpriteBatcher::new();
+        let ui_batcher = crate::renderer::batch::SpriteBatcher::new();
 
         // Register a 1x1 white texture so overlay quads (the hover highlight)
         // are coloured purely by their vertex color.
@@ -180,8 +187,8 @@ impl State {
         let popup_texture_id = renderer.register_texture(&device, &popup_texture);
 
         // Generate and register wave UI texture
-        let last_wave_ui_text = "WAVE 1 INCOMING".to_string();
-        let wave_ui_image = create_text_texture(&last_wave_ui_text, 160, 24, [255, 220, 0, 255]);
+        let last_wave_ui_text = "MAIN MENU".to_string();
+        let wave_ui_image = create_multiline_text_texture("ISOGUARD", "PRESS ENTER TO START", 160, 48, [255, 220, 0, 255], [0, 255, 255, 255]);
         let wave_ui_texture = crate::renderer::texture::Texture::from_image(
             &device,
             &queue,
@@ -226,8 +233,7 @@ impl State {
         let enemy_manager = crate::game::enemies::EnemyManager::new();
 
         let waves = crate::game::wave_manager::WaveManager::get_default_waves();
-        let mut wave_manager = crate::game::wave_manager::WaveManager::new(waves);
-        wave_manager.start_wave(0);
+        let wave_manager = crate::game::wave_manager::WaveManager::new(waves);
 
         let state = Self {
             surface,
@@ -237,6 +243,7 @@ impl State {
             is_surface_configured: true,
             renderer,
             batcher,
+            ui_batcher,
             terrain_batcher,
             map,
             enemy_manager,
@@ -271,11 +278,30 @@ impl State {
             wave_ui_texture,
             wave_ui_texture_id,
             last_wave_ui_text,
+            game_state: crate::game::game_state::GameState::MainMenu,
+            continued_after_victory: false,
         };
 
         state.update_window_title();
 
         Ok(state)
+    }
+
+    pub fn start_game(&mut self) {
+        self.player_stats = crate::game::player_stats::PlayerStats::new(5);
+        self.economy = crate::game::economy::Economy::new(200);
+
+        let waves = crate::game::wave_manager::WaveManager::get_default_waves();
+        self.wave_manager = crate::game::wave_manager::WaveManager::new(waves);
+        self.wave_manager.start_wave(0);
+
+        self.enemy_manager = crate::game::enemies::EnemyManager::new();
+        self.tower_manager = crate::game::towers::manager::TowerManager::new();
+        self.projectiles.clear();
+        self.popups.clear();
+
+        self.continued_after_victory = false;
+        self.game_state = crate::game::game_state::GameState::Playing;
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -312,6 +338,30 @@ impl State {
         // Measure real elapsed time and fold it into the accumulator.
         self.time.begin_frame();
 
+        // Handle keyboard transitions
+        if self.input.is_key_just_pressed(winit::keyboard::KeyCode::Escape) {
+            self.game_state = self.game_state.transition_on_escape();
+            log::info!("Toggled pause state to: {:?}", self.game_state);
+        }
+        if self.input.is_key_just_pressed(winit::keyboard::KeyCode::Enter)
+            || self.input.is_key_just_pressed(winit::keyboard::KeyCode::Space)
+        {
+            let old_state = self.game_state;
+            self.game_state = self.game_state.transition_on_start();
+            if old_state != self.game_state {
+                let is_continue = old_state == crate::game::game_state::GameState::Victory
+                    && self.input.is_key_just_pressed(winit::keyboard::KeyCode::Space);
+
+                if is_continue {
+                    self.continued_after_victory = true;
+                    log::info!("Continuing game in sandbox mode! State: {:?}", self.game_state);
+                } else {
+                    self.start_game();
+                    log::info!("Started game! New state: {:?}", self.game_state);
+                }
+            }
+        }
+
         // Drain the accumulator in fixed steps. Zero, one, or several logic
         // updates may run per frame depending on render rate; the spiral-of-
         // death guard lives inside `next_fixed_step`.
@@ -337,11 +387,28 @@ impl State {
     /// so simulation behaves identically regardless of frame rate. Future game
     /// logic (enemies, projectiles, towers, economy) steps here.
     fn fixed_update(&mut self, dt: f32) {
-        if !self.player_stats.is_alive() {
+        // Camera movement should work even in menus/paused states so the player can navigate.
+        self.camera_controller.update_camera(&mut self.camera, dt);
+
+        if self.game_state != crate::game::game_state::GameState::Playing {
             return;
         }
+
+        if !self.player_stats.is_alive() {
+            self.game_state = crate::game::game_state::GameState::GameOver;
+            self.placement_status = "GAME OVER!".to_string();
+            self.update_window_title();
+            return;
+        }
+
+        if self.wave_manager.state == crate::game::wave_manager::WaveState::CompletedAll && !self.continued_after_victory {
+            self.game_state = crate::game::game_state::GameState::Victory;
+            self.placement_status = "VICTORY!".to_string();
+            self.update_window_title();
+            return;
+        }
+
         self.time_elapsed += dt;
-        self.camera_controller.update_camera(&mut self.camera, dt);
         
         let active_enemy_count = self.enemy_manager.get_enemies().len();
         let prev_state = self.wave_manager.state;
@@ -371,7 +438,10 @@ impl State {
         if escaped > 0 {
             self.player_stats.take_damage(escaped as i32);
             if !self.player_stats.is_alive() {
+                self.game_state = crate::game::game_state::GameState::GameOver;
                 self.placement_status = "GAME OVER!".to_string();
+                self.update_window_title();
+                return;
             }
             self.update_window_title();
         }
@@ -443,6 +513,7 @@ impl State {
         // `terrain_batcher` and is NOT rebuilt here — only dynamic objects
         // (towers, enemies, projectiles) are queued each frame.
         self.batcher.clear();
+        self.ui_batcher.clear();
 
         // Draw a translucent 3D highlight box around the hovered tile's top
         // block, at its real height. The same `add_highlight_box` call will
@@ -630,37 +701,87 @@ impl State {
             );
         }
 
-        // --- Wave Status UI ---
-        let (ui_text, ui_color) = if !self.player_stats.is_alive() {
-            ("GAME OVER!".to_string(), [255, 50, 50, 255])
-        } else {
-            match self.wave_manager.state {
-                crate::game::wave_manager::WaveState::NotStarted => {
-                    ("WAITING TO START".to_string(), [255, 220, 0, 255])
-                }
-                crate::game::wave_manager::WaveState::Spawning | crate::game::wave_manager::WaveState::WaitingForClean => {
-                    (format!("WAVE {}", self.wave_manager.current_wave_number()), [255, 220, 0, 255])
-                }
-                crate::game::wave_manager::WaveState::InterWaveDelay => {
-                    if self.wave_manager.inter_wave_timer > 7.0 {
-                        (format!("WAVE {} COMPLETE!", self.wave_manager.current_wave_number()), [0, 255, 100, 255])
-                    } else {
-                        let next_wave = self.wave_manager.current_wave_number() + 1;
-                        (format!("WAVE {} INCOMING: {:.1}S", next_wave, self.wave_manager.inter_wave_timer), [255, 120, 0, 255])
+        // --- Wave/Game Status UI ---
+        let (line1, line2, color1, color2) = match self.game_state {
+            crate::game::game_state::GameState::MainMenu => (
+                "ISOGUARD".to_string(),
+                "PRESS ENTER TO START".to_string(),
+                [255, 220, 0, 255],     // Yellow/Gold
+                [0, 255, 255, 255],     // Cyan
+            ),
+            crate::game::game_state::GameState::Paused => (
+                "GAME PAUSED".to_string(),
+                "PRESS ESC TO RESUME".to_string(),
+                [255, 120, 0, 255],     // Orange
+                [255, 255, 255, 255],   // White
+            ),
+            crate::game::game_state::GameState::GameOver => {
+                let wave_reached = self.wave_manager.current_wave_number();
+                (
+                    "GAME OVER!".to_string(),
+                    format!("WAVE {} REACHED - PRESS ENTER", wave_reached),
+                    [255, 50, 50, 255],     // Red
+                    [255, 255, 255, 255],   // White
+                )
+            }
+            crate::game::game_state::GameState::Victory => {
+                let stats_line = format!("LIVES:{} GOLD:{}", self.player_stats.lives, self.economy.money);
+                (
+                    format!("VICTORY!  {}", stats_line),
+                    "ENTER:RESTART  SPACE:CONTINUE".to_string(),
+                    [0, 255, 255, 255],     // Cyan
+                    [255, 220, 0, 255],     // Yellow/Gold
+                )
+            }
+            crate::game::game_state::GameState::Playing => {
+                let stats_line = format!("LIVES: {}  GOLD: {}", self.player_stats.lives, self.economy.money);
+                match self.wave_manager.state {
+                    crate::game::wave_manager::WaveState::NotStarted => (
+                        "WAITING TO START".to_string(),
+                        stats_line,
+                        [255, 220, 0, 255],
+                        [255, 255, 255, 255],
+                    ),
+                    crate::game::wave_manager::WaveState::Spawning | crate::game::wave_manager::WaveState::WaitingForClean => (
+                        format!("WAVE {}", self.wave_manager.current_wave_number()),
+                        stats_line,
+                        [255, 220, 0, 255],
+                        [255, 255, 255, 255],
+                    ),
+                    crate::game::wave_manager::WaveState::InterWaveDelay => {
+                        if self.wave_manager.inter_wave_timer > 7.0 {
+                            (
+                                format!("WAVE {} COMPLETE!", self.wave_manager.current_wave_number()),
+                                stats_line,
+                                [0, 255, 100, 255],
+                                [255, 255, 255, 255],
+                            )
+                        } else {
+                            let next_wave = self.wave_manager.current_wave_number() + 1;
+                            (
+                                format!("WAVE {} INCOMING: {:.1}S", next_wave, self.wave_manager.inter_wave_timer),
+                                stats_line,
+                                [255, 120, 0, 255],
+                                [255, 255, 255, 255],
+                            )
+                        }
                     }
-                }
-                crate::game::wave_manager::WaveState::CompletedAll => {
-                    ("VICTORY! ALL WAVES COMPLETED".to_string(), [0, 255, 255, 255])
+                    crate::game::wave_manager::WaveState::CompletedAll => (
+                        "VICTORY!".to_string(),
+                        stats_line,
+                        [0, 255, 255, 255],
+                        [255, 255, 255, 255],
+                    ),
                 }
             }
         };
 
-        let cache_key = format!("{}_{}_{}_{}_{}", ui_text, ui_color[0], ui_color[1], ui_color[2], ui_color[3]);
+        let cache_key = format!("{}_{}_{:?}_{:?}", line1, line2, color1, color2);
         if cache_key != self.last_wave_ui_text {
-            let img = create_text_texture(&ui_text, 160, 24, ui_color);
+            let img = create_multiline_text_texture(&line1, &line2, 160, 48, color1, color2);
             let size = wgpu::Extent3d {
                 width: 160,
-                height: 24,
+                height: 48,
                 depth_or_array_layers: 1,
             };
             self.queue.write_texture(
@@ -674,23 +795,47 @@ impl State {
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(4 * 160),
-                    rows_per_image: Some(24),
+                    rows_per_image: Some(48),
                 },
                 size,
             );
             self.last_wave_ui_text = cache_key;
         }
 
-        // Draw Wave UI Billboard at top-center of the screen
+        // Draw Wave UI Billboard
         let up = glam::Vec3::new(-1.0, 2.0, -1.0).normalize();
         let ortho_height = 2.0 / self.camera.zoom;
         let pixel_scale = ortho_height / self.config.height as f32;
-        let sprite_size = glam::Vec2::new(480.0 * pixel_scale, 72.0 * pixel_scale);
-        let margin_y = 20.0; // 20 pixels from the top edge
-        let offset_from_target = (ortho_height * 0.5) - (sprite_size.y * 0.5) - (margin_y * pixel_scale);
+
+        let is_playing = self.game_state == crate::game::game_state::GameState::Playing;
+        let base_w = if is_playing { 480.0 } else { 640.0 };
+        let base_h = if is_playing { 144.0 } else { 192.0 };
+
+        // Clamp the UI billboard size if the screen is too small, so it never gets cut off
+        let mut scale_factor = 1.0f32;
+        let margin_pct = 0.90f32;
+        let screen_w = self.config.width as f32;
+        let screen_h = self.config.height as f32;
+        if screen_w * margin_pct < base_w {
+            scale_factor = scale_factor.min((screen_w * margin_pct) / base_w);
+        }
+        if screen_h * margin_pct < base_h {
+            scale_factor = scale_factor.min((screen_h * margin_pct) / base_h);
+        }
+
+        let scaled_w = base_w * scale_factor;
+        let scaled_h = base_h * scale_factor;
+        let sprite_size = glam::Vec2::new(scaled_w * pixel_scale, scaled_h * pixel_scale);
+
+        let offset_from_target = if is_playing {
+            let margin_y = 20.0; // 20 pixels from the top edge
+            (ortho_height * 0.5) - (sprite_size.y * 0.5) - (margin_y * pixel_scale)
+        } else {
+            0.0 // Center of screen
+        };
         let pos = self.camera.target + up * offset_from_target;
 
-        self.batcher.add_sprite(
+        self.ui_batcher.add_sprite(
             crate::renderer::sprite::Sprite::new_colored(
                 pos,
                 sprite_size,
@@ -708,6 +853,7 @@ impl State {
 
         // Compile batches and upload to the GPU.
         self.batcher.finalize(&self.device, &self.queue);
+        self.ui_batcher.finalize(&self.device, &self.queue);
     }
 
     /// Queues translucent ground markers tracing the map's enemy path into the
@@ -842,6 +988,14 @@ impl State {
             &[&self.terrain_batcher, &self.batcher],
         )?;
 
+        // Draw UI overlays on top of the 3D scene with depth testing disabled.
+        self.renderer.render_ui_batches(
+            &view,
+            &self.device,
+            &self.queue,
+            &[&self.ui_batcher],
+        )?;
+
         output.present();
 
         Ok(())
@@ -866,7 +1020,10 @@ impl State {
             winit::event::WindowEvent::MouseInput { state, button, .. } => {
                 self.input.process_mouse_button(*button, *state);
 
-                if *button == winit::event::MouseButton::Left && *state == winit::event::ElementState::Pressed {
+                if self.game_state == crate::game::game_state::GameState::Playing
+                    && *button == winit::event::MouseButton::Left
+                    && *state == winit::event::ElementState::Pressed
+                {
                     if let Some((gx, gz)) = self.hovered_tile {
                         let pos = glam::Vec2::new(gx as f32, gz as f32);
                         let tower_type = crate::game::towers::manager::TowerType::Basic;
@@ -1108,11 +1265,15 @@ fn create_gold_texture(text: &str) -> image::RgbaImage {
     img
 }
 
-fn create_text_texture(text: &str, width: u32, height: u32, color_rgba: [u8; 4]) -> image::RgbaImage {
+fn create_multiline_text_texture(
+    line1: &str,
+    line2: &str,
+    width: u32,
+    height: u32,
+    color1: [u8; 4],
+    color2: [u8; 4],
+) -> image::RgbaImage {
     let mut img = image::RgbaImage::new(width, height);
-    if text.is_empty() {
-        return img;
-    }
     
     // Tiny 3x5 font
     let get_char_bitmap = |c: char| -> &'static [u8; 5] {
@@ -1158,39 +1319,71 @@ fn create_text_texture(text: &str, width: u32, height: u32, color_rgba: [u8; 4])
             '!' => &[2, 2, 2, 0, 2],
             '+' => &[2, 2, 7, 2, 2],
             '-' => &[0, 0, 7, 0, 0],
+            ' ' => &[0, 0, 0, 0, 0],
             _ => &[0, 0, 0, 0, 0],
         }
     };
-    
-    let text_width = text.len() as i32 * 4 - 1;
-    let start_x = (width as i32 - text_width) / 2;
-    let start_y = (height as i32 - 5) / 2;
-    
-    for (char_idx, c) in text.chars().enumerate() {
-        let bitmap = get_char_bitmap(c);
-        let cx = start_x + char_idx as i32 * 4;
+
+    // Draw line 1 (vertical center of top half, e.g. height / 4 = 12 for height = 48)
+    if !line1.is_empty() {
+        let text_width = line1.len() as i32 * 4 - 1;
+        let start_x = (width as i32 - text_width) / 2;
+        let start_y = (height as i32 / 4) - 2;
         
-        for row in 0..5 {
-            let row_val = bitmap[row];
-            let cy = start_y + row as i32;
-            for col in 0..3 {
-                let bit = (row_val >> (2 - col)) & 1;
-                if bit == 1 {
-                    let px = cx + col;
-                    if px >= 0 && px < width as i32 && cy >= 0 && cy < height as i32 {
-                        img.put_pixel(px as u32, cy as u32, image::Rgba(color_rgba));
+        for (char_idx, c) in line1.chars().enumerate() {
+            let bitmap = get_char_bitmap(c);
+            let cx = start_x + char_idx as i32 * 4;
+            
+            for row in 0..5 {
+                let row_val = bitmap[row];
+                let cy = start_y + row as i32;
+                for col in 0..3 {
+                    let bit = (row_val >> (2 - col)) & 1;
+                    if bit == 1 {
+                        let px = cx + col;
+                        if px >= 0 && px < width as i32 && cy >= 0 && cy < height as i32 {
+                            img.put_pixel(px as u32, cy as u32, image::Rgba(color1));
+                        }
                     }
                 }
             }
         }
     }
-    
-    // Outline pass: for any pixel of our text color, check its 8 neighbors. If they are empty, make them black.
+
+    // Draw line 2 (vertical center of bottom half, e.g. 3 * height / 4 = 36 for height = 48)
+    if !line2.is_empty() {
+        let text_width = line2.len() as i32 * 4 - 1;
+        let start_x = (width as i32 - text_width) / 2;
+        let start_y = (3 * height as i32 / 4) - 2;
+        
+        for (char_idx, c) in line2.chars().enumerate() {
+            let bitmap = get_char_bitmap(c);
+            let cx = start_x + char_idx as i32 * 4;
+            
+            for row in 0..5 {
+                let row_val = bitmap[row];
+                let cy = start_y + row as i32;
+                for col in 0..3 {
+                    let bit = (row_val >> (2 - col)) & 1;
+                    if bit == 1 {
+                        let px = cx + col;
+                        if px >= 0 && px < width as i32 && cy >= 0 && cy < height as i32 {
+                            img.put_pixel(px as u32, cy as u32, image::Rgba(color2));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Outline pass: for any pixel of our text colors, check its 8 neighbors. If they are empty, make them black.
     let mut text_pixels = std::collections::HashSet::new();
     for y in 0..height {
         for x in 0..width {
             let p = img.get_pixel(x, y);
-            if p[3] > 0 && p[0] == color_rgba[0] && p[1] == color_rgba[1] && p[2] == color_rgba[2] {
+            let is_colored1 = p[3] > 0 && p[0] == color1[0] && p[1] == color1[1] && p[2] == color1[2];
+            let is_colored2 = p[3] > 0 && p[0] == color2[0] && p[1] == color2[1] && p[2] == color2[2];
+            if is_colored1 || is_colored2 {
                 text_pixels.insert((x as i32, y as i32));
             }
         }

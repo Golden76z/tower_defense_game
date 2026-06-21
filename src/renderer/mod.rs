@@ -88,6 +88,7 @@ impl CameraUniform {
 
 pub struct Renderer {
     render_pipeline: wgpu::RenderPipeline,
+    ui_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     num_vertices: u32,
     camera_buffer: wgpu::Buffer,
@@ -326,6 +327,50 @@ impl Renderer {
             cache: None,
         });
 
+        let ui_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("UI Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Vertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Always,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
+
         let depth_texture = texture::Texture::create_depth_texture(device, config, "depth_texture");
 
         // Create vertex buffer with triangle data
@@ -339,6 +384,7 @@ impl Renderer {
 
         Self {
             render_pipeline,
+            ui_pipeline,
             vertex_buffer,
             num_vertices,
             camera_buffer,
@@ -530,6 +576,63 @@ impl Renderer {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+
+            for batcher in batchers {
+                if let Some(vertex_buffer) = batcher.vertex_buffer() {
+                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+
+                    for batch in batcher.batches() {
+                        if let Some(bind_group) = self.texture_bind_groups.get(batch.texture_id) {
+                            render_pass.set_bind_group(1, bind_group, &[]);
+                            render_pass.draw(batch.vertex_offset..(batch.vertex_offset + batch.vertex_count), 0..1);
+                        }
+                    }
+                }
+            }
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+        Ok(())
+    }
+
+    /// Renders UI sprite batchers on top of the existing scene without depth testing/occlusion.
+    pub fn render_ui_batches(
+        &self,
+        view: &wgpu::TextureView,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        batchers: &[&batch::SpriteBatcher],
+    ) -> Result<(), wgpu::SurfaceError> {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("UI Multi-Batch Render Encoder"),
+        });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("UI Multi-Batch Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(&self.ui_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
             for batcher in batchers {

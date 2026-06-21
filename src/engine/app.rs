@@ -136,8 +136,8 @@ impl ApplicationHandler<State> for App {
                     },
                 ..
             } => match (code, key_state.is_pressed()) {
-                // Exit the programm when pressing Escape key
-                (KeyCode::Escape, true) => event_loop.exit(),
+                // Exit the program when pressing Escape key (disabled to allow pausing instead)
+                // (KeyCode::Escape, true) => event_loop.exit(),
 
                 // Resizing the window
                 (KeyCode::KeyR, true) => {
