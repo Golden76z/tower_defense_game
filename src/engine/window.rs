@@ -76,6 +76,12 @@ pub struct State {
     pub game_state: crate::game::game_state::GameState,
     /// Whether the player has continued playing in sandbox mode after victory.
     pub continued_after_victory: bool,
+    /// egui context for managing UI state.
+    egui_ctx: egui::Context,
+    /// egui winit event handler state.
+    egui_state: egui_winit::State,
+    /// egui wgpu renderer.
+    egui_renderer: egui_wgpu::Renderer,
 }
 
 impl State {
@@ -235,6 +241,27 @@ impl State {
         let waves = crate::game::wave_manager::WaveManager::get_default_waves();
         let wave_manager = crate::game::wave_manager::WaveManager::new(waves);
 
+        let egui_ctx = egui::Context::default();
+        let viewport_id = egui_ctx.viewport_id();
+        let egui_state = egui_winit::State::new(
+            egui_ctx.clone(),
+            viewport_id,
+            &window,
+            Some(window.scale_factor() as f32),
+            None,
+            None,
+        );
+        let egui_renderer = egui_wgpu::Renderer::new(
+            &device,
+            config.format,
+            egui_wgpu::RendererOptions {
+                msaa_samples: 1,
+                depth_stencil_format: None,
+                dithering: false,
+                predictable_texture_filtering: false,
+            },
+        );
+
         let state = Self {
             surface,
             device,
@@ -280,6 +307,9 @@ impl State {
             last_wave_ui_text,
             game_state: crate::game::game_state::GameState::MainMenu,
             continued_after_victory: false,
+            egui_ctx,
+            egui_state,
+            egui_renderer,
         };
 
         state.update_window_title();
@@ -803,48 +833,42 @@ impl State {
         }
 
         // Draw Wave UI Billboard
-        let up = glam::Vec3::new(-1.0, 2.0, -1.0).normalize();
-        let ortho_height = 2.0 / self.camera.zoom;
-        let pixel_scale = ortho_height / self.config.height as f32;
+        if self.game_state != crate::game::game_state::GameState::Playing {
+            let ortho_height = 2.0 / self.camera.zoom;
+            let pixel_scale = ortho_height / self.config.height as f32;
 
-        let is_playing = self.game_state == crate::game::game_state::GameState::Playing;
-        let base_w = if is_playing { 480.0 } else { 640.0 };
-        let base_h = if is_playing { 144.0 } else { 192.0 };
+            let base_w = 640.0;
+            let base_h = 192.0;
 
-        // Clamp the UI billboard size if the screen is too small, so it never gets cut off
-        let mut scale_factor = 1.0f32;
-        let margin_pct = 0.90f32;
-        let screen_w = self.config.width as f32;
-        let screen_h = self.config.height as f32;
-        if screen_w * margin_pct < base_w {
-            scale_factor = scale_factor.min((screen_w * margin_pct) / base_w);
+            // Clamp the UI billboard size if the screen is too small, so it never gets cut off
+            let mut scale_factor = 1.0f32;
+            let margin_pct = 0.90f32;
+            let screen_w = self.config.width as f32;
+            let screen_h = self.config.height as f32;
+            if screen_w * margin_pct < base_w {
+                scale_factor = scale_factor.min((screen_w * margin_pct) / base_w);
+            }
+            if screen_h * margin_pct < base_h {
+                scale_factor = scale_factor.min((screen_h * margin_pct) / base_h);
+            }
+
+            let scaled_w = base_w * scale_factor;
+            let scaled_h = base_h * scale_factor;
+            let sprite_size = glam::Vec2::new(scaled_w * pixel_scale, scaled_h * pixel_scale);
+
+            let pos = self.camera.target;
+
+            self.ui_batcher.add_sprite(
+                crate::renderer::sprite::Sprite::new_colored(
+                    pos,
+                    sprite_size,
+                    self.wave_ui_texture_id,
+                    0.0,
+                    [1.0, 1.0, 1.0, 1.0], // Tint
+                ),
+                crate::renderer::sprite::SpriteAlignment::Billboard,
+            );
         }
-        if screen_h * margin_pct < base_h {
-            scale_factor = scale_factor.min((screen_h * margin_pct) / base_h);
-        }
-
-        let scaled_w = base_w * scale_factor;
-        let scaled_h = base_h * scale_factor;
-        let sprite_size = glam::Vec2::new(scaled_w * pixel_scale, scaled_h * pixel_scale);
-
-        let offset_from_target = if is_playing {
-            let margin_y = 20.0; // 20 pixels from the top edge
-            (ortho_height * 0.5) - (sprite_size.y * 0.5) - (margin_y * pixel_scale)
-        } else {
-            0.0 // Center of screen
-        };
-        let pos = self.camera.target + up * offset_from_target;
-
-        self.ui_batcher.add_sprite(
-            crate::renderer::sprite::Sprite::new_colored(
-                pos,
-                sprite_size,
-                self.wave_ui_texture_id,
-                0.0,
-                [1.0, 1.0, 1.0, 1.0], // Tint
-            ),
-            crate::renderer::sprite::SpriteAlignment::Billboard,
-        );
 
         // Debug: draw the enemy path as ground markers when enabled.
         if self.show_path_debug {
@@ -996,12 +1020,172 @@ impl State {
             &[&self.ui_batcher],
         )?;
 
+        // 1. Get raw input from winit and begin frame
+        let raw_input = self.egui_state.take_egui_input(&self.window);
+        self.egui_ctx.begin_pass(raw_input);
+
+        // 2. Draw HUD if in GameState::Playing
+        if self.game_state == crate::game::game_state::GameState::Playing {
+            // Draw lives panel (top-left)
+            egui::Area::new(egui::Id::new("hud_lives"))
+                .anchor(egui::Align2::LEFT_TOP, egui::vec2(20.0, 20.0))
+                .show(&self.egui_ctx, |ui| {
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_black_alpha(180))
+                        .corner_radius(8.0)
+                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 75, 75)))
+                        .inner_margin(12.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("❤️").size(24.0));
+                                ui.label(egui::RichText::new(format!("{}", self.player_stats.lives))
+                                    .font(egui::FontId::proportional(20.0))
+                                    .color(egui::Color32::WHITE)
+                                    .strong());
+                            });
+                        });
+                });
+
+            // Draw gold panel (top-right)
+            egui::Area::new(egui::Id::new("hud_gold"))
+                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-20.0, 20.0))
+                .show(&self.egui_ctx, |ui| {
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_black_alpha(180))
+                        .corner_radius(8.0)
+                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 215, 0)))
+                        .inner_margin(12.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("💰").size(24.0));
+                                ui.label(egui::RichText::new(format!("{}", self.economy.money))
+                                    .font(egui::FontId::proportional(20.0))
+                                    .color(egui::Color32::WHITE)
+                                    .strong());
+                            });
+                        });
+                });
+
+            // Draw wave panel (top-center)
+            egui::Area::new(egui::Id::new("hud_wave"))
+                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 20.0))
+                .show(&self.egui_ctx, |ui| {
+                    let wave_text = match self.wave_manager.state {
+                        crate::game::wave_manager::WaveState::NotStarted => "Waiting to Start".to_string(),
+                        crate::game::wave_manager::WaveState::Spawning | crate::game::wave_manager::WaveState::WaitingForClean => {
+                            format!("Wave {}/{}", self.wave_manager.current_wave_number(), self.wave_manager.waves.len())
+                        }
+                        crate::game::wave_manager::WaveState::InterWaveDelay => {
+                            if self.wave_manager.inter_wave_timer > 7.0 {
+                                format!("Wave {} Complete!", self.wave_manager.current_wave_number())
+                            } else {
+                                let next_wave = self.wave_manager.current_wave_number() + 1;
+                                format!("Wave {} Incoming: {:.1}s", next_wave, self.wave_manager.inter_wave_timer)
+                            }
+                        }
+                        crate::game::wave_manager::WaveState::CompletedAll => "Victory!".to_string(),
+                    };
+                    let border_color = match self.wave_manager.state {
+                        crate::game::wave_manager::WaveState::NotStarted => egui::Color32::from_rgb(0, 180, 255),
+                        crate::game::wave_manager::WaveState::Spawning | crate::game::wave_manager::WaveState::WaitingForClean => {
+                            egui::Color32::from_rgb(0, 255, 100)
+                        }
+                        crate::game::wave_manager::WaveState::InterWaveDelay => {
+                            if self.wave_manager.inter_wave_timer > 7.0 {
+                                egui::Color32::from_rgb(0, 255, 100)
+                            } else {
+                                egui::Color32::from_rgb(255, 120, 0)
+                            }
+                        }
+                        crate::game::wave_manager::WaveState::CompletedAll => egui::Color32::from_rgb(0, 255, 255),
+                    };
+
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_black_alpha(180))
+                        .corner_radius(8.0)
+                        .stroke(egui::Stroke::new(1.5, border_color))
+                        .inner_margin(12.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("⚔️").size(24.0));
+                                ui.label(egui::RichText::new(wave_text)
+                                    .font(egui::FontId::proportional(20.0))
+                                    .color(egui::Color32::WHITE)
+                                    .strong());
+                            });
+                        });
+                });
+        }
+
+        // 3. End frame and tessellate
+        let full_output = self.egui_ctx.end_pass();
+        
+        // Handle egui platform output (textures and viewports)
+        self.egui_state.handle_platform_output(&self.window, full_output.platform_output);
+
+        let paint_jobs = self.egui_ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
+        let screen_descriptor = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [self.config.width, self.config.height],
+            pixels_per_point: self.window.scale_factor() as f32,
+        };
+
+        // 4. Update egui textures
+        for (id, image_delta) in &full_output.textures_delta.set {
+            self.egui_renderer.update_texture(&self.device, &self.queue, *id, image_delta);
+        }
+
+        // 5. Create command encoder for egui buffer updates and rendering
+        let mut egui_encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Egui Encoder"),
+        });
+
+        // 6. Update egui buffers on GPU
+        self.egui_renderer.update_buffers(
+            &self.device,
+            &self.queue,
+            &mut egui_encoder,
+            &paint_jobs,
+            &screen_descriptor,
+        );
+
+        // 7. Render egui using a render pass with LoadOp::Load
+        {
+            let mut render_pass = egui_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Egui Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            }).forget_lifetime();
+
+            self.egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
+        }
+
+        // 8. Submit egui commands & free textures
+        self.queue.submit(std::iter::once(egui_encoder.finish()));
+
+        for id in &full_output.textures_delta.free {
+            self.egui_renderer.free_texture(id);
+        }
+
         output.present();
 
         Ok(())
     }
 
     pub fn input(&mut self, event: &winit::event::WindowEvent) -> bool {
+        let response = self.egui_state.on_window_event(&self.window, event);
+        if response.consumed {
+            return true;
+        }
         match event {
             winit::event::WindowEvent::KeyboardInput {
                 event:
@@ -1448,4 +1632,28 @@ mod tests {
 
         assert!(ray_aabb(origin, dir, min, max).is_none());
     }
+}
+
+#[allow(dead_code)]
+fn dummy_compile_test(device: &wgpu::Device, window: &winit::window::Window) {
+    let egui_ctx = egui::Context::default();
+    let viewport_id = egui_ctx.viewport_id();
+    let _egui_state = egui_winit::State::new(
+        egui_ctx.clone(),
+        viewport_id,
+        window,
+        Some(window.scale_factor() as f32),
+        None,
+        None,
+    );
+    let _egui_renderer = egui_wgpu::Renderer::new(
+        device,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        egui_wgpu::RendererOptions {
+            msaa_samples: 1,
+            depth_stencil_format: None,
+            dithering: true,
+            predictable_texture_filtering: false,
+        },
+    );
 }
