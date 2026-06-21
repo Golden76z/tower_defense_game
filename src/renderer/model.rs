@@ -54,10 +54,24 @@ impl Model {
                         [0.0, 0.0]
                     };
                     
+                    // Use baked per-vertex colors if the OBJ provides them
+                    // (extended `v x y z r g b` format), otherwise white. This
+                    // lets low-poly models carry baked facet shading.
+                    let color = if mesh.vertex_color.len() >= idx * 3 + 3 {
+                        [
+                            mesh.vertex_color[idx * 3],
+                            mesh.vertex_color[idx * 3 + 1],
+                            mesh.vertex_color[idx * 3 + 2],
+                            1.0,
+                        ]
+                    } else {
+                        [1.0, 1.0, 1.0, 1.0]
+                    };
+
                     vertices.push(Vertex {
                         position: pos,
                         tex_coords,
-                        color: [1.0, 1.0, 1.0, 1.0], // Default color
+                        color,
                     });
                 }
             }
@@ -68,12 +82,16 @@ impl Model {
 
     /// Transforms the model's base vertices and returns them ready for batching.
     /// Applies translation, uniform scale, and rotation around the Y-axis.
+    ///
+    /// `tint` is multiplied with each vertex's baked color, so a white tint
+    /// (`[1.0; 4]`) shows the model's baked shading unchanged, while a coloured
+    /// tint recolours an otherwise white model (e.g. enemies).
     pub fn generate_vertices(
         &self,
         position: Vec3,
         scale: f32,
         rotation_y: f32,
-        color: [f32; 4],
+        tint: [f32; 4],
     ) -> Vec<Vertex> {
         let rotation = Quat::from_rotation_y(rotation_y);
         let transform = Mat4::from_scale_rotation_translation(
@@ -91,7 +109,12 @@ impl Model {
                 Vertex {
                     position: world_pos.into(),
                     tex_coords: v.tex_coords,
-                    color,
+                    color: [
+                        v.color[0] * tint[0],
+                        v.color[1] * tint[1],
+                        v.color[2] * tint[2],
+                        v.color[3] * tint[3],
+                    ],
                 }
             })
             .collect()

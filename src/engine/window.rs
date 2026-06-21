@@ -24,6 +24,13 @@ pub struct State {
     enemy_texture_id: usize,
     /// Texture id of a 1x1 white texture used to tint overlay quads.
     highlight_texture_id: usize,
+    pub tower_manager: crate::game::towers::manager::TowerManager,
+    /// 3D model for the tower.
+    tower_model: crate::renderer::model::Model,
+    /// Active projectiles flying towards enemies.
+    projectiles: Vec<crate::game::projectiles::Projectile>,
+    /// 3D model for the projectile.
+    projectile_model: crate::renderer::model::Model,
     /// Latest cursor position in physical pixels, or `None` when the cursor is
     /// outside the window.
     cursor_pos: Option<(f64, f64)>,
@@ -137,6 +144,14 @@ impl State {
         .expect("enemy texture should be valid");
         let enemy_texture_id = renderer.register_texture(&device, &enemy_texture);
 
+        // Load 3D model for the tower
+        let tower_model = crate::renderer::model::Model::load("assets/models/tower.obj")
+            .expect("Failed to load tower.obj model");
+
+        // Load 3D model for projectile
+        let projectile_model = crate::renderer::model::Model::load("assets/models/projectile.obj")
+            .expect("Failed to load projectile.obj model");
+
         // Load 3D model for enemies
         let enemy_model = crate::renderer::model::Model::load("assets/models/enemy.obj")
             .expect("Failed to load enemy.obj model");
@@ -188,6 +203,10 @@ impl State {
             enemy_model,
             enemy_texture_id,
             highlight_texture_id,
+            tower_model,
+            tower_manager: crate::game::towers::manager::TowerManager::new(),
+            projectiles: Vec::new(),
+            projectile_model,
             cursor_pos: None,
             hovered_tile: None,
             window,
@@ -262,6 +281,31 @@ impl State {
         }
         
         self.enemy_manager.update(dt, &self.map.path);
+        
+        // Update towers and handle projectiles
+        let new_projectiles = self.tower_manager.update_all(dt, self.enemy_manager.get_enemies());
+        self.projectiles.extend(new_projectiles);
+
+        // Update active projectiles
+        let mut to_remove = Vec::new();
+        for (i, proj) in self.projectiles.iter_mut().enumerate() {
+            if proj.update(dt) {
+                to_remove.push(i);
+                
+                // Damage enemies near the target position
+                for enemy in &mut self.enemy_manager.enemies {
+                    let dist = enemy.get_position().distance(proj.target_position);
+                    if dist < 0.5 { // 0.5 tile hit radius
+                        enemy.take_damage(proj.damage);
+                    }
+                }
+            }
+        }
+
+        // Remove dead projectiles
+        for i in to_remove.into_iter().rev() {
+            self.projectiles.swap_remove(i);
+        }
     }
 
     /// Per-frame render preparation: upload the camera matrix, resolve the
@@ -293,13 +337,52 @@ impl State {
                 // and doesn't z-fight with the terrain faces.
                 let size = glam::Vec3::splat(TILE_WORLD_SIZE + HIGHLIGHT_INFLATE);
 
+                let is_valid = self.tower_manager.can_place_tower(&self.map, glam::Vec2::new(gx as f32, gz as f32)).is_ok();
+                let highlight_color = if is_valid {
+                    [0.0, 1.0, 0.0, 0.45] // Green for valid
+                } else {
+                    [1.0, 0.0, 0.0, 0.45] // Red for invalid
+                };
+
                 self.batcher.add_highlight_box(
                     glam::Vec3::new(pos_x, center_y, pos_z),
                     size,
-                    HIGHLIGHT_COLOR,
+                    highlight_color,
                     self.highlight_texture_id,
                 );
             }
+        }
+
+        // Draw towers
+        for tower in &self.tower_manager.towers {
+            let pos = tower.get_position();
+            let world_x = (pos.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
+            let world_z = (pos.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
+            
+            let gx = pos.x.round() as i32;
+            let gy = pos.y.round() as i32;
+            let tile_y = self.map.get_tile(gx, gy).map(|t| t.grid_y).unwrap_or(0);
+            
+            let world_y = tile_y as f32 * TILE_WORLD_SIZE + TILE_WORLD_SIZE * 0.5;
+
+            // Draw tower model
+            // The model is around 1 unit high, we want it to be roughly a tile size
+            let scale = TILE_WORLD_SIZE * 0.6;
+            
+            // BasicTower's rotation is an angle in the XY plane where +X is 0, +Y is PI/2.
+            // In 3D, our camera XZ plane maps from 2D XY. So +Y in 2D is +Z in 3D.
+            // A rotation of angle around Y axis from +X to +Z is exactly the same as 2D angle (if Y is UP).
+            // Actually, in 3D Y is up, so rotation around Y from +X to +Z is a negative angle.
+            let rot = tower.get_rotation();
+            let rot_y = -rot;
+
+            let vertices = self.tower_model.generate_vertices(
+                glam::Vec3::new(world_x, world_y, world_z),
+                scale,
+                rot_y,
+                [1.0, 1.0, 1.0, 1.0], // White tint -> show the model's baked colors
+            );
+            self.batcher.add_model(vertices, self.highlight_texture_id);
         }
 
         // Draw enemies
@@ -362,6 +445,47 @@ impl State {
                 ),
                 crate::renderer::sprite::SpriteAlignment::Billboard,
             );
+        }
+
+        // Draw projectiles
+        for proj in &self.projectiles {
+            let pos = proj.position;
+            let world_x = (pos.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
+            let world_z = (pos.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
+            
+            // Interpolate the exact 3D world height from start to target
+            let start_gx = proj.start_position.x.round() as i32;
+            let start_gy = proj.start_position.y.round() as i32;
+            let start_tile_y = self.map.get_tile(start_gx, start_gy).map(|t| t.grid_y).unwrap_or(0);
+            
+            let target_gx = proj.target_position.x.round() as i32;
+            let target_gy = proj.target_position.y.round() as i32;
+            let target_tile_y = self.map.get_tile(target_gx, target_gy).map(|t| t.grid_y).unwrap_or(0);
+
+            // A tile's top surface (where towers/enemies sit) is half a cube
+            // above its grid_y centre, so every height is measured from
+            // `(tile_y + 0.5) * TILE`. `spawn_height_offset` is the barrel
+            // height above that surface, in tile units.
+            let start_world_y =
+                (start_tile_y as f32 + 0.5 + proj.spawn_height_offset) * TILE_WORLD_SIZE;
+            // Aim slightly above the ground to hit the enemy body (not under it).
+            let target_world_y = (target_tile_y as f32 + 0.5) * TILE_WORLD_SIZE + 0.2 * TILE_WORLD_SIZE;
+            
+            let total_dist = proj.start_position.distance(proj.target_position);
+            let current_dist = proj.position.distance(proj.target_position);
+            let t = if total_dist > 0.0 { 1.0 - (current_dist / total_dist) } else { 1.0 };
+            
+            let world_y = start_world_y * (1.0 - t) + target_world_y * t;
+            
+            // The generated sphere has radius 1.0, so let's scale it to 0.008
+            let scale = 0.008; 
+            let vertices = self.projectile_model.generate_vertices(
+                glam::Vec3::new(world_x, world_y, world_z),
+                scale,
+                0.0,
+                [1.0, 1.0, 0.0, 1.0], // Yellow
+            );
+            self.batcher.add_model(vertices, self.highlight_texture_id);
         }
 
         // Debug: draw the enemy path as ground markers when enabled.
@@ -528,6 +652,20 @@ impl State {
             }
             winit::event::WindowEvent::MouseInput { state, button, .. } => {
                 self.input.process_mouse_button(*button, *state);
+
+                if *button == winit::event::MouseButton::Left && *state == winit::event::ElementState::Pressed {
+                    if let Some((gx, gz)) = self.hovered_tile {
+                        let pos = glam::Vec2::new(gx as f32, gz as f32);
+                        if self.tower_manager.can_place_tower(&self.map, pos).is_ok() {
+                            if let Err(e) = self.tower_manager.place_tower(&self.map, pos, crate::game::towers::manager::TowerType::Basic) {
+                                log::warn!("Failed to place tower: {}", e);
+                            } else {
+                                log::info!("Placed tower at {}, {}", gx, gz);
+                            }
+                        }
+                    }
+                }
+
                 false
             }
             winit::event::WindowEvent::CursorMoved { position, .. } => {
@@ -558,8 +696,6 @@ pub const TILE_WORLD_SIZE: f32 = 0.12;
 /// picking share this so a tile's pickable column matches its visible extent.
 const TERRAIN_BASE_LEVEL: i32 = -2;
 
-/// Translucent warm-yellow tint for the hovered-tile highlight overlay.
-const HIGHLIGHT_COLOR: [f32; 4] = [1.0, 0.9, 0.3, 0.45];
 
 /// How much larger the highlight shell is than the block it wraps, so it sits
 /// just outside the terrain faces and avoids z-fighting.
