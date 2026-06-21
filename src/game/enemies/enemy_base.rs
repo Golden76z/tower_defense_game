@@ -16,7 +16,7 @@ use crate::game::map::path::Path;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use glam::Vec2;
 /// use crate::game::map::path::Path;
 /// use crate::game::enemies::enemy_base::Enemy;
@@ -70,4 +70,7 @@ pub trait Enemy {
 
     /// Checks if the enemy is currently alive.
     fn is_alive(&self) -> bool;
+
+    /// Gets the gold reward for defeating this enemy.
+    fn get_reward(&self) -> u32;
 }

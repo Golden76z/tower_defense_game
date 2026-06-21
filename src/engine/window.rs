@@ -4,6 +4,12 @@ use winit::window::Window;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+pub struct GoldPopup {
+    pub position: glam::Vec3,
+    pub lifetime: f32,
+    pub amount: u32,
+}
+
 // This will store the state of our game
 pub struct State {
     surface: wgpu::Surface<'static>,
@@ -21,7 +27,7 @@ pub struct State {
     /// 3D model for the enemy.
     enemy_model: crate::renderer::model::Model,
     /// Texture id for the enemy sprite.
-    enemy_texture_id: usize,
+    _enemy_texture_id: usize,
     /// Texture id of a 1x1 white texture used to tint overlay quads.
     highlight_texture_id: usize,
     pub tower_manager: crate::game::towers::manager::TowerManager,
@@ -46,6 +52,14 @@ pub struct State {
     input: crate::engine::input::InputState,
     /// When true, the enemy path is drawn as ground markers (toggle: `P`).
     show_path_debug: bool,
+    /// Economy tracking player money.
+    pub economy: crate::game::economy::Economy,
+    /// Feedback status message shown in the window title.
+    pub placement_status: String,
+    /// Gold reward popup sprites.
+    popups: Vec<GoldPopup>,
+    /// Texture id for the gold popup sprite.
+    popup_texture_id: usize,
 }
 
 impl State {
@@ -144,6 +158,17 @@ impl State {
         .expect("enemy texture should be valid");
         let enemy_texture_id = renderer.register_texture(&device, &enemy_texture);
 
+        // Generate and register gold popup texture
+        let popup_image = create_gold_texture("+10");
+        let popup_texture = crate::renderer::texture::Texture::from_image(
+            &device,
+            &queue,
+            &image::DynamicImage::ImageRgba8(popup_image),
+            Some("gold_popup"),
+        )
+        .expect("gold popup texture should be valid");
+        let popup_texture_id = renderer.register_texture(&device, &popup_texture);
+
         // Load 3D model for the tower
         let tower_model = crate::renderer::model::Model::load("assets/models/tower.obj")
             .expect("Failed to load tower.obj model");
@@ -189,7 +214,7 @@ impl State {
             }
         }
 
-        Ok(Self {
+        let state = Self {
             surface,
             device,
             queue,
@@ -201,7 +226,7 @@ impl State {
             map,
             enemy_manager,
             enemy_model,
-            enemy_texture_id,
+            _enemy_texture_id: enemy_texture_id,
             highlight_texture_id,
             tower_model,
             tower_manager: crate::game::towers::manager::TowerManager::new(),
@@ -222,7 +247,15 @@ impl State {
             camera_controller,
             input: crate::engine::input::InputState::new(),
             show_path_debug: false,
-        })
+            economy: crate::game::economy::Economy::new(200),
+            placement_status: "Ready".to_string(),
+            popups: Vec::new(),
+            popup_texture_id,
+        };
+
+        state.update_window_title();
+
+        Ok(state)
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -234,6 +267,16 @@ impl State {
             self.renderer.resize(&self.device, &self.config);
             self.renderer.update_camera_uniform(&self.queue, &self.camera, width, height);
         }
+    }
+
+    pub fn update_window_title(&self) {
+        let title = format!(
+            "Isoguard - Gold: {} | Basic Tower Cost: {} | Status: {}",
+            self.economy.money,
+            crate::game::towers::manager::TowerType::Basic.cost(),
+            self.placement_status
+        );
+        self.window.set_title(&title);
     }
 
     /// Advances the game one frame.
@@ -280,7 +323,26 @@ impl State {
             }
         }
         
-        self.enemy_manager.update(dt, &self.map.path);
+        let killed = self.enemy_manager.update(dt, &self.map.path);
+        for (pos, reward) in killed {
+            self.economy.add_money(reward as i32);
+            self.update_window_title();
+            
+            // Calculate 3D position for the popup
+            let world_x = (pos.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
+            let world_z = (pos.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
+            
+            let gx = pos.x.round() as i32;
+            let gy = pos.y.round() as i32;
+            let tile_y = self.map.get_tile(gx, gy).map(|t| t.grid_y).unwrap_or(0);
+            let world_y = tile_y as f32 * TILE_WORLD_SIZE + TILE_WORLD_SIZE * 0.5 + 0.05;
+
+            self.popups.push(GoldPopup {
+                position: glam::Vec3::new(world_x, world_y + 0.02, world_z),
+                lifetime: 1.0,
+                amount: reward,
+            });
+        }
         
         // Update towers and handle projectiles
         let new_projectiles = self.tower_manager.update_all(dt, self.enemy_manager.get_enemies());
@@ -306,6 +368,13 @@ impl State {
         for i in to_remove.into_iter().rev() {
             self.projectiles.swap_remove(i);
         }
+
+        // Update gold popups
+        for popup in &mut self.popups {
+            popup.position.y += 0.04 * dt; // Float upward
+            popup.lifetime -= dt;
+        }
+        self.popups.retain(|p| p.lifetime > 0.0);
     }
 
     /// Per-frame render preparation: upload the camera matrix, resolve the
@@ -337,7 +406,12 @@ impl State {
                 // and doesn't z-fight with the terrain faces.
                 let size = glam::Vec3::splat(TILE_WORLD_SIZE + HIGHLIGHT_INFLATE);
 
-                let is_valid = self.tower_manager.can_place_tower(&self.map, glam::Vec2::new(gx as f32, gz as f32)).is_ok();
+                let is_valid = self.tower_manager.can_place_tower(
+                    &self.map,
+                    glam::Vec2::new(gx as f32, gz as f32),
+                    crate::game::towers::manager::TowerType::Basic,
+                    &self.economy,
+                ).is_ok();
                 let highlight_color = if is_valid {
                     [0.0, 1.0, 0.0, 0.45] // Green for valid
                 } else {
@@ -486,6 +560,22 @@ impl State {
                 [1.0, 1.0, 0.0, 1.0], // Yellow
             );
             self.batcher.add_model(vertices, self.highlight_texture_id);
+        }
+
+        // Draw popups
+        for popup in &self.popups {
+            let size = glam::Vec2::new(0.06, 0.03); // Billboard size for the +10 popup
+            let alpha = popup.lifetime.clamp(0.0, 1.0);
+            self.batcher.add_sprite(
+                crate::renderer::sprite::Sprite::new_colored(
+                    popup.position,
+                    size,
+                    self.popup_texture_id,
+                    0.0,
+                    [1.0, 1.0, 1.0, alpha], // Fade out as lifetime decays
+                ),
+                crate::renderer::sprite::SpriteAlignment::Billboard,
+            );
         }
 
         // Debug: draw the enemy path as ground markers when enabled.
@@ -656,11 +746,17 @@ impl State {
                 if *button == winit::event::MouseButton::Left && *state == winit::event::ElementState::Pressed {
                     if let Some((gx, gz)) = self.hovered_tile {
                         let pos = glam::Vec2::new(gx as f32, gz as f32);
-                        if self.tower_manager.can_place_tower(&self.map, pos).is_ok() {
-                            if let Err(e) = self.tower_manager.place_tower(&self.map, pos, crate::game::towers::manager::TowerType::Basic) {
-                                log::warn!("Failed to place tower: {}", e);
-                            } else {
+                        let tower_type = crate::game::towers::manager::TowerType::Basic;
+                        match self.tower_manager.place_tower(&self.map, pos, tower_type, &mut self.economy) {
+                            Ok(_) => {
                                 log::info!("Placed tower at {}, {}", gx, gz);
+                                self.placement_status = format!("Placed basic tower at ({}, {})", gx, gz);
+                                self.update_window_title();
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to place tower: {}", e);
+                                self.placement_status = format!("Failed to place tower: {}", e);
+                                self.update_window_title();
                             }
                         }
                     }
@@ -806,6 +902,87 @@ fn build_terrain_mesh(
     }
 
     batcher.finalize(device, queue);
+}
+
+fn create_gold_texture(text: &str) -> image::RgbaImage {
+    let width = 32;
+    let height = 16;
+    let mut img = image::RgbaImage::new(width, height);
+    
+    // Tiny 3x5 font: 0-9 and '+'
+    let get_char_bitmap = |c: char| -> &'static [u8; 5] {
+        match c {
+            '+' => &[2, 2, 7, 2, 2],
+            '0' => &[7, 5, 5, 5, 7],
+            '1' => &[2, 6, 2, 2, 7],
+            '2' => &[7, 1, 7, 4, 7],
+            '3' => &[7, 1, 7, 1, 7],
+            '4' => &[5, 5, 7, 1, 1],
+            '5' => &[7, 4, 7, 1, 7],
+            '6' => &[7, 4, 7, 5, 7],
+            '7' => &[7, 1, 2, 2, 2],
+            '8' => &[7, 5, 7, 5, 7],
+            '9' => &[7, 5, 7, 1, 7],
+            _ => &[0, 0, 0, 0, 0],
+        }
+    };
+    
+    // Calculate total width to center the text
+    let char_width = 3;
+    let spacing = 1;
+    let total_width = text.len() as i32 * char_width + (text.len() as i32 - 1) * spacing;
+    let start_x = (width as i32 - total_width) / 2;
+    let start_y = (height as i32 - 5) / 2;
+    
+    for (char_idx, c) in text.chars().enumerate() {
+        let bitmap = get_char_bitmap(c);
+        let cx = start_x + char_idx as i32 * (char_width + spacing);
+        
+        for row in 0..5 {
+            let val = bitmap[row];
+            let cy = start_y + row as i32;
+            for col in 0..3 {
+                // Check if bit (2 - col) is set
+                let bit = 1 << (2 - col);
+                if (val & bit) != 0 {
+                    let px = cx + col;
+                    if px >= 0 && px < width as i32 && cy >= 0 && cy < height as i32 {
+                        img.put_pixel(px as u32, cy as u32, image::Rgba([255, 220, 0, 255]));
+                    }
+                }
+            }
+        }
+    }
+    
+    // Outline pass: for any yellow pixel, check its 8 neighbors. If they are empty, make them black.
+    let mut yellow_pixels = std::collections::HashSet::new();
+    for y in 0..height {
+        for x in 0..width {
+            let p = img.get_pixel(x, y);
+            if p[3] > 0 && p[0] == 255 && p[1] == 220 {
+                yellow_pixels.insert((x as i32, y as i32));
+            }
+        }
+    }
+    
+    for &(x, y) in &yellow_pixels {
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let nx = x + dx;
+                let ny = y + dy;
+                if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
+                    if !yellow_pixels.contains(&(nx, ny)) {
+                        img.put_pixel(nx as u32, ny as u32, image::Rgba([0, 0, 0, 255]));
+                    }
+                }
+            }
+        }
+    }
+    
+    img
 }
 
 // Removed Vertex implementation (moved to renderer module)

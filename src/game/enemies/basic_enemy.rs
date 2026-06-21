@@ -65,6 +65,10 @@ impl Enemy for BasicEnemy {
     fn is_alive(&self) -> bool {
         self.health > 0.0
     }
+
+    fn get_reward(&self) -> u32 {
+        self.reward
+    }
 }
 
 #[cfg(test)]

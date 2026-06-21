@@ -268,32 +268,32 @@ mod tests {
 
         // Check UV coords
         assert_eq!(vertices[0].tex_coords, [0.0, 0.0]); // TL
-        assert_eq!(vertices[1].tex_coords, [1.0, 1.0]); // BR
-        assert_eq!(vertices[2].tex_coords, [0.0, 1.0]); // BL
+        assert_eq!(vertices[1].tex_coords, [0.0, 1.0]); // BL
+        assert_eq!(vertices[2].tex_coords, [1.0, 1.0]); // BR
         assert_eq!(vertices[3].tex_coords, [0.0, 0.0]); // TL
-        assert_eq!(vertices[4].tex_coords, [1.0, 0.0]); // TR
-        assert_eq!(vertices[5].tex_coords, [1.0, 1.0]); // BR
+        assert_eq!(vertices[4].tex_coords, [1.0, 1.0]); // BR
+        assert_eq!(vertices[5].tex_coords, [1.0, 0.0]); // TR
 
         // Check Positions (Horizontal/ground plane X-Z, centered around (0,0,0))
-        // TL should be [-0.5, 0.0, 0.5]
+        // TL should be [-0.5, 0.0, -0.5]
         assert_relative_eq!(vertices[0].position[0], -0.5);
         assert_relative_eq!(vertices[0].position[1], 0.0);
-        assert_relative_eq!(vertices[0].position[2], 0.5);
+        assert_relative_eq!(vertices[0].position[2], -0.5);
 
-        // BR should be [0.5, 0.0, -0.5]
-        assert_relative_eq!(vertices[1].position[0], 0.5);
+        // BL should be [-0.5, 0.0, 0.5]
+        assert_relative_eq!(vertices[1].position[0], -0.5);
         assert_relative_eq!(vertices[1].position[1], 0.0);
-        assert_relative_eq!(vertices[1].position[2], -0.5);
+        assert_relative_eq!(vertices[1].position[2], 0.5);
 
-        // BL should be [-0.5, 0.0, -0.5]
-        assert_relative_eq!(vertices[2].position[0], -0.5);
+        // BR should be [0.5, 0.0, 0.5]
+        assert_relative_eq!(vertices[2].position[0], 0.5);
         assert_relative_eq!(vertices[2].position[1], 0.0);
-        assert_relative_eq!(vertices[2].position[2], -0.5);
+        assert_relative_eq!(vertices[2].position[2], 0.5);
 
-        // TR should be [0.5, 0.0, 0.5]
-        assert_relative_eq!(vertices[4].position[0], 0.5);
-        assert_relative_eq!(vertices[4].position[1], 0.0);
-        assert_relative_eq!(vertices[4].position[2], 0.5);
+        // TR should be [0.5, 0.0, -0.5]
+        assert_relative_eq!(vertices[5].position[0], 0.5);
+        assert_relative_eq!(vertices[5].position[1], 0.0);
+        assert_relative_eq!(vertices[5].position[2], -0.5);
     }
 
     #[test]
@@ -307,20 +307,20 @@ mod tests {
         assert_relative_eq!(vertices[0].position[1], 4.0);
         assert_relative_eq!(vertices[0].position[2], 3.0);
 
-        // BR local: (1, -2, 0) -> world: (2, 0, 3)
-        assert_relative_eq!(vertices[1].position[0], 2.0);
+        // BL local: (-1, -2, 0) -> world: (0, 0, 3)
+        assert_relative_eq!(vertices[1].position[0], 0.0);
         assert_relative_eq!(vertices[1].position[1], 0.0);
         assert_relative_eq!(vertices[1].position[2], 3.0);
 
-        // BL local: (-1, -2, 0) -> world: (0, 0, 3)
-        assert_relative_eq!(vertices[2].position[0], 0.0);
+        // BR local: (1, -2, 0) -> world: (2, 0, 3)
+        assert_relative_eq!(vertices[2].position[0], 2.0);
         assert_relative_eq!(vertices[2].position[1], 0.0);
         assert_relative_eq!(vertices[2].position[2], 3.0);
 
         // TR local: (1, 2, 0) -> world: (2, 4, 3)
-        assert_relative_eq!(vertices[4].position[0], 2.0);
-        assert_relative_eq!(vertices[4].position[1], 4.0);
-        assert_relative_eq!(vertices[4].position[2], 3.0);
+        assert_relative_eq!(vertices[5].position[0], 2.0);
+        assert_relative_eq!(vertices[5].position[1], 4.0);
+        assert_relative_eq!(vertices[5].position[2], 3.0);
     }
 
     #[test]
@@ -338,6 +338,6 @@ mod tests {
         // = ( -1*0 - 1*1, -1*1 + 1*0 ) = (-1, -1)
         assert_relative_eq!(vertices[0].position[0], -1.0, epsilon = 1e-6);
         assert_relative_eq!(vertices[0].position[1], 0.0);
-        assert_relative_eq!(vertices[0].position[2], -1.0, epsilon = 1e-6);
+        assert_relative_eq!(vertices[0].position[2], 1.0, epsilon = 1e-6);
     }
 }
