@@ -76,6 +76,8 @@ pub struct State {
     pub game_state: crate::game::game_state::GameState,
     /// Whether the player has continued playing in sandbox mode after victory.
     pub continued_after_victory: bool,
+    /// Whether the game has requested to exit.
+    pub exit_requested: bool,
     /// egui context for managing UI state.
     egui_ctx: egui::Context,
     /// egui winit event handler state.
@@ -307,6 +309,7 @@ impl State {
             last_wave_ui_text,
             game_state: crate::game::game_state::GameState::MainMenu,
             continued_after_victory: false,
+            exit_requested: false,
             egui_ctx,
             egui_state,
             egui_renderer,
@@ -833,7 +836,9 @@ impl State {
         }
 
         // Draw Wave UI Billboard
-        if self.game_state != crate::game::game_state::GameState::Playing {
+        if self.game_state != crate::game::game_state::GameState::Playing
+            && self.game_state != crate::game::game_state::GameState::Paused
+        {
             let ortho_height = 2.0 / self.camera.zoom;
             let pixel_scale = ortho_height / self.config.height as f32;
 
@@ -1112,6 +1117,104 @@ impl State {
                                     .font(egui::FontId::proportional(20.0))
                                     .color(egui::Color32::WHITE)
                                     .strong());
+                            });
+                        });
+                });
+        }
+
+        // Draw Pause Menu if in GameState::Paused
+        if self.game_state == crate::game::game_state::GameState::Paused {
+            let egui_ctx = self.egui_ctx.clone();
+            // Full-screen dark tint backdrop
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.fill(egui::Color32::from_black_alpha(150)))
+                .show(&egui_ctx, |_ui| {});
+
+            // Centered Pause Menu modal
+            egui::Area::new(egui::Id::new("hud_pause_menu"))
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(&egui_ctx, |ui| {
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_black_alpha(220))
+                        .corner_radius(12.0)
+                        .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(0, 180, 255)))
+                        .inner_margin(24.0)
+                        .show(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.label(
+                                    egui::RichText::new("GAME PAUSED")
+                                        .font(egui::FontId::proportional(28.0))
+                                        .color(egui::Color32::from_rgb(0, 180, 255))
+                                        .strong(),
+                                );
+                                
+                                ui.add_space(8.0);
+                                
+                                // Display current stats
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Wave {}  |  ❤️ {}  |  💰 {}",
+                                        self.wave_manager.current_wave_number(),
+                                        self.player_stats.lives,
+                                        self.economy.money
+                                    ))
+                                    .font(egui::FontId::proportional(16.0))
+                                    .color(egui::Color32::LIGHT_GRAY)
+                                );
+
+                                ui.add_space(20.0);
+
+                                let btn_width = 180.0;
+                                let btn_height = 36.0;
+
+                                // 1. Resume Button
+                                let resume_btn = egui::Button::new(
+                                    egui::RichText::new("▶  Resume")
+                                        .font(egui::FontId::proportional(18.0))
+                                        .color(egui::Color32::WHITE)
+                                        .strong()
+                                )
+                                .fill(egui::Color32::from_rgb(46, 125, 50)) // Sleek Green
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(102, 187, 106)));
+
+                                if ui.add_sized([btn_width, btn_height], resume_btn).clicked() {
+                                    self.game_state = crate::game::game_state::GameState::Playing;
+                                    log::info!("Resumed game via Pause Menu button");
+                                }
+
+                                ui.add_space(12.0);
+
+                                // 2. Restart Button
+                                let restart_btn = egui::Button::new(
+                                    egui::RichText::new("🔄  Restart")
+                                        .font(egui::FontId::proportional(18.0))
+                                        .color(egui::Color32::WHITE)
+                                        .strong()
+                                )
+                                .fill(egui::Color32::from_rgb(21, 101, 192)) // Sleek Blue
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(100, 181, 246)));
+
+                                if ui.add_sized([btn_width, btn_height], restart_btn).clicked() {
+                                    self.start_game();
+                                    log::info!("Restarted game via Pause Menu button");
+                                }
+
+                                ui.add_space(12.0);
+
+                                // 3. Quit Button
+                                let quit_btn = egui::Button::new(
+                                    egui::RichText::new("🚪  Quit")
+                                        .font(egui::FontId::proportional(18.0))
+                                        .color(egui::Color32::WHITE)
+                                        .strong()
+                                )
+                                .fill(egui::Color32::from_rgb(198, 40, 40)) // Sleek Red
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(239, 83, 80)));
+
+                                if ui.add_sized([btn_width, btn_height], quit_btn).clicked() {
+                                    self.exit_requested = true;
+                                    log::info!("Quit requested via Pause Menu button");
+                                }
                             });
                         });
                 });
