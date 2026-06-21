@@ -58,6 +58,8 @@ pub struct State {
     pub player_stats: crate::game::player_stats::PlayerStats,
     /// Feedback status message shown in the window title.
     pub placement_status: String,
+    /// Wave manager to coordinate enemy spawning.
+    pub wave_manager: crate::game::wave_manager::WaveManager,
     /// Gold reward popup sprites.
     popups: Vec<GoldPopup>,
     /// Texture id for the gold popup sprite.
@@ -203,13 +205,11 @@ impl State {
         let mut terrain_batcher = crate::renderer::batch::SpriteBatcher::new();
         build_terrain_mesh(&map, &mut terrain_batcher, &device, &queue);
 
-        let mut enemy_manager = crate::game::enemies::EnemyManager::new();
-        
-        // Spawn test enemies if we have a path
-        if let Some(start_pos) = map.path.start() {
-            let enemy = crate::game::enemies::basic_enemy::BasicEnemy::new(start_pos);
-            enemy_manager.spawn_enemy(Box::new(enemy));
-        }
+        let enemy_manager = crate::game::enemies::EnemyManager::new();
+
+        let waves = crate::game::wave_manager::WaveManager::get_default_waves();
+        let mut wave_manager = crate::game::wave_manager::WaveManager::new(waves);
+        wave_manager.start_wave(0);
 
         let state = Self {
             surface,
@@ -247,6 +247,7 @@ impl State {
             economy: crate::game::economy::Economy::new(200),
             player_stats: crate::game::player_stats::PlayerStats::new(5),
             placement_status: "Ready".to_string(),
+            wave_manager,
             popups: Vec::new(),
             popup_texture_id,
         };
@@ -268,13 +269,15 @@ impl State {
     }
 
     pub fn update_window_title(&self) {
+        let wave_msg = self.wave_manager.get_status_message();
         let title = format!(
-            "Isoguard - Lives: {}/{} | Gold: {} | Basic Tower Cost: {} | Status: {}",
+            "Isoguard - Lives: {}/{} | Gold: {} | Basic Tower Cost: {} | Status: {} | {}",
             self.player_stats.lives,
             self.player_stats.max_lives,
             self.economy.money,
             crate::game::towers::manager::TowerType::Basic.cost(),
-            self.placement_status
+            self.placement_status,
+            wave_msg
         );
         self.window.set_title(&title);
     }
@@ -319,11 +322,27 @@ impl State {
         self.time_elapsed += dt;
         self.camera_controller.update_camera(&mut self.camera, dt);
         
-        // Spawn a new enemy every 2 seconds for testing
-        if (self.time_elapsed % 2.0) < dt {
-            if let Some(start_pos) = self.map.path.start() {
-                self.enemy_manager.spawn_enemy(Box::new(crate::game::enemies::basic_enemy::BasicEnemy::new(start_pos)));
+        let active_enemy_count = self.enemy_manager.get_enemies().len();
+        let prev_state = self.wave_manager.state;
+        let prev_wave_num = self.wave_manager.current_wave_number();
+        let prev_timer = self.wave_manager.inter_wave_timer;
+
+        if let Some(enemy_type) = self.wave_manager.update(dt, active_enemy_count) {
+            match enemy_type {
+                crate::game::wave_manager::EnemyType::Basic => {
+                    if let Some(start_pos) = self.map.path.start() {
+                        let enemy = crate::game::enemies::basic_enemy::BasicEnemy::new(start_pos);
+                        self.enemy_manager.spawn_enemy(Box::new(enemy));
+                    }
+                }
             }
+        }
+
+        let state_changed = prev_state != self.wave_manager.state;
+        let wave_num_changed = prev_wave_num != self.wave_manager.current_wave_number();
+        let timer_changed = (prev_timer * 10.0).round() != (self.wave_manager.inter_wave_timer * 10.0).round();
+        if state_changed || wave_num_changed || timer_changed {
+            self.update_window_title();
         }
         
         let (killed, escaped) = self.enemy_manager.update(dt, &self.map.path);

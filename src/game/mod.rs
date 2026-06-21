@@ -6,3 +6,4 @@ pub mod map;
 pub mod player_stats;
 pub mod projectiles;
 pub mod towers;
+pub mod wave_manager;
