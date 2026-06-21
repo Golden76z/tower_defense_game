@@ -7,3 +7,5 @@ pub mod player_stats;
 pub mod projectiles;
 pub mod towers;
 pub mod wave_manager;
+pub mod game_state;
+

@@ -20,6 +20,8 @@ pub struct State {
     renderer: crate::renderer::Renderer,
     /// Per-frame batcher for dynamic objects (towers, enemies, projectiles).
     batcher: crate::renderer::batch::SpriteBatcher,
+    /// Per-frame batcher for UI overlays (rendered on top of everything without depth test).
+    ui_batcher: crate::renderer::batch::SpriteBatcher,
     /// Cached static terrain mesh, rebuilt only when the map changes.
     terrain_batcher: crate::renderer::batch::SpriteBatcher,
     map: crate::game::map::Map,
@@ -70,6 +72,18 @@ pub struct State {
     wave_ui_texture_id: usize,
     /// Text of the last wave UI texture upload.
     last_wave_ui_text: String,
+    /// The current game state.
+    pub game_state: crate::game::game_state::GameState,
+    /// Whether the player has continued playing in sandbox mode after victory.
+    pub continued_after_victory: bool,
+    /// Whether the game has requested to exit.
+    pub exit_requested: bool,
+    /// egui context for managing UI state.
+    egui_ctx: egui::Context,
+    /// egui winit event handler state.
+    egui_state: egui_winit::State,
+    /// egui wgpu renderer.
+    egui_renderer: egui_wgpu::Renderer,
 }
 
 impl State {
@@ -142,6 +156,7 @@ impl State {
         let camera_controller = crate::renderer::camera::CameraController::default();
         let mut renderer = crate::renderer::Renderer::new(&device, &queue, &config, &camera);
         let batcher = crate::renderer::batch::SpriteBatcher::new();
+        let ui_batcher = crate::renderer::batch::SpriteBatcher::new();
 
         // Register a 1x1 white texture so overlay quads (the hover highlight)
         // are coloured purely by their vertex color.
@@ -180,8 +195,8 @@ impl State {
         let popup_texture_id = renderer.register_texture(&device, &popup_texture);
 
         // Generate and register wave UI texture
-        let last_wave_ui_text = "WAVE 1 INCOMING".to_string();
-        let wave_ui_image = create_text_texture(&last_wave_ui_text, 160, 24, [255, 220, 0, 255]);
+        let last_wave_ui_text = "MAIN MENU".to_string();
+        let wave_ui_image = create_multiline_text_texture("ISOGUARD", "PRESS ENTER TO START", 160, 48, [255, 220, 0, 255], [0, 255, 255, 255]);
         let wave_ui_texture = crate::renderer::texture::Texture::from_image(
             &device,
             &queue,
@@ -226,8 +241,28 @@ impl State {
         let enemy_manager = crate::game::enemies::EnemyManager::new();
 
         let waves = crate::game::wave_manager::WaveManager::get_default_waves();
-        let mut wave_manager = crate::game::wave_manager::WaveManager::new(waves);
-        wave_manager.start_wave(0);
+        let wave_manager = crate::game::wave_manager::WaveManager::new(waves);
+
+        let egui_ctx = egui::Context::default();
+        let viewport_id = egui_ctx.viewport_id();
+        let egui_state = egui_winit::State::new(
+            egui_ctx.clone(),
+            viewport_id,
+            &window,
+            Some(window.scale_factor() as f32),
+            None,
+            None,
+        );
+        let egui_renderer = egui_wgpu::Renderer::new(
+            &device,
+            config.format,
+            egui_wgpu::RendererOptions {
+                msaa_samples: 1,
+                depth_stencil_format: None,
+                dithering: false,
+                predictable_texture_filtering: false,
+            },
+        );
 
         let state = Self {
             surface,
@@ -237,6 +272,7 @@ impl State {
             is_surface_configured: true,
             renderer,
             batcher,
+            ui_batcher,
             terrain_batcher,
             map,
             enemy_manager,
@@ -271,11 +307,34 @@ impl State {
             wave_ui_texture,
             wave_ui_texture_id,
             last_wave_ui_text,
+            game_state: crate::game::game_state::GameState::MainMenu,
+            continued_after_victory: false,
+            exit_requested: false,
+            egui_ctx,
+            egui_state,
+            egui_renderer,
         };
 
         state.update_window_title();
 
         Ok(state)
+    }
+
+    pub fn start_game(&mut self) {
+        self.player_stats = crate::game::player_stats::PlayerStats::new(5);
+        self.economy = crate::game::economy::Economy::new(200);
+
+        let waves = crate::game::wave_manager::WaveManager::get_default_waves();
+        self.wave_manager = crate::game::wave_manager::WaveManager::new(waves);
+        self.wave_manager.start_wave(0);
+
+        self.enemy_manager = crate::game::enemies::EnemyManager::new();
+        self.tower_manager = crate::game::towers::manager::TowerManager::new();
+        self.projectiles.clear();
+        self.popups.clear();
+
+        self.continued_after_victory = false;
+        self.game_state = crate::game::game_state::GameState::Playing;
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -312,6 +371,30 @@ impl State {
         // Measure real elapsed time and fold it into the accumulator.
         self.time.begin_frame();
 
+        // Handle keyboard transitions
+        if self.input.is_key_just_pressed(winit::keyboard::KeyCode::Escape) {
+            self.game_state = self.game_state.transition_on_escape();
+            log::info!("Toggled pause state to: {:?}", self.game_state);
+        }
+        if self.input.is_key_just_pressed(winit::keyboard::KeyCode::Enter)
+            || self.input.is_key_just_pressed(winit::keyboard::KeyCode::Space)
+        {
+            let old_state = self.game_state;
+            self.game_state = self.game_state.transition_on_start();
+            if old_state != self.game_state {
+                let is_continue = old_state == crate::game::game_state::GameState::Victory
+                    && self.input.is_key_just_pressed(winit::keyboard::KeyCode::Space);
+
+                if is_continue {
+                    self.continued_after_victory = true;
+                    log::info!("Continuing game in sandbox mode! State: {:?}", self.game_state);
+                } else {
+                    self.start_game();
+                    log::info!("Started game! New state: {:?}", self.game_state);
+                }
+            }
+        }
+
         // Drain the accumulator in fixed steps. Zero, one, or several logic
         // updates may run per frame depending on render rate; the spiral-of-
         // death guard lives inside `next_fixed_step`.
@@ -337,11 +420,28 @@ impl State {
     /// so simulation behaves identically regardless of frame rate. Future game
     /// logic (enemies, projectiles, towers, economy) steps here.
     fn fixed_update(&mut self, dt: f32) {
-        if !self.player_stats.is_alive() {
+        // Camera movement should work even in menus/paused states so the player can navigate.
+        self.camera_controller.update_camera(&mut self.camera, dt);
+
+        if self.game_state != crate::game::game_state::GameState::Playing {
             return;
         }
+
+        if !self.player_stats.is_alive() {
+            self.game_state = crate::game::game_state::GameState::GameOver;
+            self.placement_status = "GAME OVER!".to_string();
+            self.update_window_title();
+            return;
+        }
+
+        if self.wave_manager.state == crate::game::wave_manager::WaveState::CompletedAll && !self.continued_after_victory {
+            self.game_state = crate::game::game_state::GameState::Victory;
+            self.placement_status = "VICTORY!".to_string();
+            self.update_window_title();
+            return;
+        }
+
         self.time_elapsed += dt;
-        self.camera_controller.update_camera(&mut self.camera, dt);
         
         let active_enemy_count = self.enemy_manager.get_enemies().len();
         let prev_state = self.wave_manager.state;
@@ -371,7 +471,10 @@ impl State {
         if escaped > 0 {
             self.player_stats.take_damage(escaped as i32);
             if !self.player_stats.is_alive() {
+                self.game_state = crate::game::game_state::GameState::GameOver;
                 self.placement_status = "GAME OVER!".to_string();
+                self.update_window_title();
+                return;
             }
             self.update_window_title();
         }
@@ -443,6 +546,7 @@ impl State {
         // `terrain_batcher` and is NOT rebuilt here — only dynamic objects
         // (towers, enemies, projectiles) are queued each frame.
         self.batcher.clear();
+        self.ui_batcher.clear();
 
         // Draw a translucent 3D highlight box around the hovered tile's top
         // block, at its real height. The same `add_highlight_box` call will
@@ -630,37 +734,87 @@ impl State {
             );
         }
 
-        // --- Wave Status UI ---
-        let (ui_text, ui_color) = if !self.player_stats.is_alive() {
-            ("GAME OVER!".to_string(), [255, 50, 50, 255])
-        } else {
-            match self.wave_manager.state {
-                crate::game::wave_manager::WaveState::NotStarted => {
-                    ("WAITING TO START".to_string(), [255, 220, 0, 255])
-                }
-                crate::game::wave_manager::WaveState::Spawning | crate::game::wave_manager::WaveState::WaitingForClean => {
-                    (format!("WAVE {}", self.wave_manager.current_wave_number()), [255, 220, 0, 255])
-                }
-                crate::game::wave_manager::WaveState::InterWaveDelay => {
-                    if self.wave_manager.inter_wave_timer > 7.0 {
-                        (format!("WAVE {} COMPLETE!", self.wave_manager.current_wave_number()), [0, 255, 100, 255])
-                    } else {
-                        let next_wave = self.wave_manager.current_wave_number() + 1;
-                        (format!("WAVE {} INCOMING: {:.1}S", next_wave, self.wave_manager.inter_wave_timer), [255, 120, 0, 255])
+        // --- Wave/Game Status UI ---
+        let (line1, line2, color1, color2) = match self.game_state {
+            crate::game::game_state::GameState::MainMenu => (
+                "ISOGUARD".to_string(),
+                "PRESS ENTER TO START".to_string(),
+                [255, 220, 0, 255],     // Yellow/Gold
+                [0, 255, 255, 255],     // Cyan
+            ),
+            crate::game::game_state::GameState::Paused => (
+                "GAME PAUSED".to_string(),
+                "PRESS ESC TO RESUME".to_string(),
+                [255, 120, 0, 255],     // Orange
+                [255, 255, 255, 255],   // White
+            ),
+            crate::game::game_state::GameState::GameOver => {
+                let wave_reached = self.wave_manager.current_wave_number();
+                (
+                    "GAME OVER!".to_string(),
+                    format!("WAVE {} REACHED - PRESS ENTER", wave_reached),
+                    [255, 50, 50, 255],     // Red
+                    [255, 255, 255, 255],   // White
+                )
+            }
+            crate::game::game_state::GameState::Victory => {
+                let stats_line = format!("LIVES:{} GOLD:{}", self.player_stats.lives, self.economy.money);
+                (
+                    format!("VICTORY!  {}", stats_line),
+                    "ENTER:RESTART  SPACE:CONTINUE".to_string(),
+                    [0, 255, 255, 255],     // Cyan
+                    [255, 220, 0, 255],     // Yellow/Gold
+                )
+            }
+            crate::game::game_state::GameState::Playing => {
+                let stats_line = format!("LIVES: {}  GOLD: {}", self.player_stats.lives, self.economy.money);
+                match self.wave_manager.state {
+                    crate::game::wave_manager::WaveState::NotStarted => (
+                        "WAITING TO START".to_string(),
+                        stats_line,
+                        [255, 220, 0, 255],
+                        [255, 255, 255, 255],
+                    ),
+                    crate::game::wave_manager::WaveState::Spawning | crate::game::wave_manager::WaveState::WaitingForClean => (
+                        format!("WAVE {}", self.wave_manager.current_wave_number()),
+                        stats_line,
+                        [255, 220, 0, 255],
+                        [255, 255, 255, 255],
+                    ),
+                    crate::game::wave_manager::WaveState::InterWaveDelay => {
+                        if self.wave_manager.inter_wave_timer > 7.0 {
+                            (
+                                format!("WAVE {} COMPLETE!", self.wave_manager.current_wave_number()),
+                                stats_line,
+                                [0, 255, 100, 255],
+                                [255, 255, 255, 255],
+                            )
+                        } else {
+                            let next_wave = self.wave_manager.current_wave_number() + 1;
+                            (
+                                format!("WAVE {} INCOMING: {:.1}S", next_wave, self.wave_manager.inter_wave_timer),
+                                stats_line,
+                                [255, 120, 0, 255],
+                                [255, 255, 255, 255],
+                            )
+                        }
                     }
-                }
-                crate::game::wave_manager::WaveState::CompletedAll => {
-                    ("VICTORY! ALL WAVES COMPLETED".to_string(), [0, 255, 255, 255])
+                    crate::game::wave_manager::WaveState::CompletedAll => (
+                        "VICTORY!".to_string(),
+                        stats_line,
+                        [0, 255, 255, 255],
+                        [255, 255, 255, 255],
+                    ),
                 }
             }
         };
 
-        let cache_key = format!("{}_{}_{}_{}_{}", ui_text, ui_color[0], ui_color[1], ui_color[2], ui_color[3]);
+        let cache_key = format!("{}_{}_{:?}_{:?}", line1, line2, color1, color2);
         if cache_key != self.last_wave_ui_text {
-            let img = create_text_texture(&ui_text, 160, 24, ui_color);
+            let img = create_multiline_text_texture(&line1, &line2, 160, 48, color1, color2);
             let size = wgpu::Extent3d {
                 width: 160,
-                height: 24,
+                height: 48,
                 depth_or_array_layers: 1,
             };
             self.queue.write_texture(
@@ -674,32 +828,52 @@ impl State {
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(4 * 160),
-                    rows_per_image: Some(24),
+                    rows_per_image: Some(48),
                 },
                 size,
             );
             self.last_wave_ui_text = cache_key;
         }
 
-        // Draw Wave UI Billboard at top-center of the screen
-        let up = glam::Vec3::new(-1.0, 2.0, -1.0).normalize();
-        let ortho_height = 2.0 / self.camera.zoom;
-        let pixel_scale = ortho_height / self.config.height as f32;
-        let sprite_size = glam::Vec2::new(480.0 * pixel_scale, 72.0 * pixel_scale);
-        let margin_y = 20.0; // 20 pixels from the top edge
-        let offset_from_target = (ortho_height * 0.5) - (sprite_size.y * 0.5) - (margin_y * pixel_scale);
-        let pos = self.camera.target + up * offset_from_target;
+        // Draw Wave UI Billboard
+        if self.game_state != crate::game::game_state::GameState::Playing
+            && self.game_state != crate::game::game_state::GameState::Paused
+        {
+            let ortho_height = 2.0 / self.camera.zoom;
+            let pixel_scale = ortho_height / self.config.height as f32;
 
-        self.batcher.add_sprite(
-            crate::renderer::sprite::Sprite::new_colored(
-                pos,
-                sprite_size,
-                self.wave_ui_texture_id,
-                0.0,
-                [1.0, 1.0, 1.0, 1.0], // Tint
-            ),
-            crate::renderer::sprite::SpriteAlignment::Billboard,
-        );
+            let base_w = 640.0;
+            let base_h = 192.0;
+
+            // Clamp the UI billboard size if the screen is too small, so it never gets cut off
+            let mut scale_factor = 1.0f32;
+            let margin_pct = 0.90f32;
+            let screen_w = self.config.width as f32;
+            let screen_h = self.config.height as f32;
+            if screen_w * margin_pct < base_w {
+                scale_factor = scale_factor.min((screen_w * margin_pct) / base_w);
+            }
+            if screen_h * margin_pct < base_h {
+                scale_factor = scale_factor.min((screen_h * margin_pct) / base_h);
+            }
+
+            let scaled_w = base_w * scale_factor;
+            let scaled_h = base_h * scale_factor;
+            let sprite_size = glam::Vec2::new(scaled_w * pixel_scale, scaled_h * pixel_scale);
+
+            let pos = self.camera.target;
+
+            self.ui_batcher.add_sprite(
+                crate::renderer::sprite::Sprite::new_colored(
+                    pos,
+                    sprite_size,
+                    self.wave_ui_texture_id,
+                    0.0,
+                    [1.0, 1.0, 1.0, 1.0], // Tint
+                ),
+                crate::renderer::sprite::SpriteAlignment::Billboard,
+            );
+        }
 
         // Debug: draw the enemy path as ground markers when enabled.
         if self.show_path_debug {
@@ -708,6 +882,7 @@ impl State {
 
         // Compile batches and upload to the GPU.
         self.batcher.finalize(&self.device, &self.queue);
+        self.ui_batcher.finalize(&self.device, &self.queue);
     }
 
     /// Queues translucent ground markers tracing the map's enemy path into the
@@ -842,12 +1017,278 @@ impl State {
             &[&self.terrain_batcher, &self.batcher],
         )?;
 
+        // Draw UI overlays on top of the 3D scene with depth testing disabled.
+        self.renderer.render_ui_batches(
+            &view,
+            &self.device,
+            &self.queue,
+            &[&self.ui_batcher],
+        )?;
+
+        // 1. Get raw input from winit and begin frame
+        let raw_input = self.egui_state.take_egui_input(&self.window);
+        self.egui_ctx.begin_pass(raw_input);
+
+        // 2. Draw HUD if in GameState::Playing
+        if self.game_state == crate::game::game_state::GameState::Playing {
+            // Draw lives panel (top-left)
+            egui::Area::new(egui::Id::new("hud_lives"))
+                .anchor(egui::Align2::LEFT_TOP, egui::vec2(20.0, 20.0))
+                .show(&self.egui_ctx, |ui| {
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_black_alpha(180))
+                        .corner_radius(8.0)
+                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 75, 75)))
+                        .inner_margin(12.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("❤️").size(24.0));
+                                ui.label(egui::RichText::new(format!("{}", self.player_stats.lives))
+                                    .font(egui::FontId::proportional(20.0))
+                                    .color(egui::Color32::WHITE)
+                                    .strong());
+                            });
+                        });
+                });
+
+            // Draw gold panel (top-right)
+            egui::Area::new(egui::Id::new("hud_gold"))
+                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-20.0, 20.0))
+                .show(&self.egui_ctx, |ui| {
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_black_alpha(180))
+                        .corner_radius(8.0)
+                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 215, 0)))
+                        .inner_margin(12.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("💰").size(24.0));
+                                ui.label(egui::RichText::new(format!("{}", self.economy.money))
+                                    .font(egui::FontId::proportional(20.0))
+                                    .color(egui::Color32::WHITE)
+                                    .strong());
+                            });
+                        });
+                });
+
+            // Draw wave panel (top-center)
+            egui::Area::new(egui::Id::new("hud_wave"))
+                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 20.0))
+                .show(&self.egui_ctx, |ui| {
+                    let wave_text = match self.wave_manager.state {
+                        crate::game::wave_manager::WaveState::NotStarted => "Waiting to Start".to_string(),
+                        crate::game::wave_manager::WaveState::Spawning | crate::game::wave_manager::WaveState::WaitingForClean => {
+                            format!("Wave {}/{}", self.wave_manager.current_wave_number(), self.wave_manager.waves.len())
+                        }
+                        crate::game::wave_manager::WaveState::InterWaveDelay => {
+                            if self.wave_manager.inter_wave_timer > 7.0 {
+                                format!("Wave {} Complete!", self.wave_manager.current_wave_number())
+                            } else {
+                                let next_wave = self.wave_manager.current_wave_number() + 1;
+                                format!("Wave {} Incoming: {:.1}s", next_wave, self.wave_manager.inter_wave_timer)
+                            }
+                        }
+                        crate::game::wave_manager::WaveState::CompletedAll => "Victory!".to_string(),
+                    };
+                    let border_color = match self.wave_manager.state {
+                        crate::game::wave_manager::WaveState::NotStarted => egui::Color32::from_rgb(0, 180, 255),
+                        crate::game::wave_manager::WaveState::Spawning | crate::game::wave_manager::WaveState::WaitingForClean => {
+                            egui::Color32::from_rgb(0, 255, 100)
+                        }
+                        crate::game::wave_manager::WaveState::InterWaveDelay => {
+                            if self.wave_manager.inter_wave_timer > 7.0 {
+                                egui::Color32::from_rgb(0, 255, 100)
+                            } else {
+                                egui::Color32::from_rgb(255, 120, 0)
+                            }
+                        }
+                        crate::game::wave_manager::WaveState::CompletedAll => egui::Color32::from_rgb(0, 255, 255),
+                    };
+
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_black_alpha(180))
+                        .corner_radius(8.0)
+                        .stroke(egui::Stroke::new(1.5, border_color))
+                        .inner_margin(12.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("⚔️").size(24.0));
+                                ui.label(egui::RichText::new(wave_text)
+                                    .font(egui::FontId::proportional(20.0))
+                                    .color(egui::Color32::WHITE)
+                                    .strong());
+                            });
+                        });
+                });
+        }
+
+        // Draw Pause Menu if in GameState::Paused
+        if self.game_state == crate::game::game_state::GameState::Paused {
+            let egui_ctx = self.egui_ctx.clone();
+            // Full-screen dark tint backdrop
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.fill(egui::Color32::from_black_alpha(150)))
+                .show(&egui_ctx, |_ui| {});
+
+            // Centered Pause Menu modal
+            egui::Area::new(egui::Id::new("hud_pause_menu"))
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(&egui_ctx, |ui| {
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_black_alpha(220))
+                        .corner_radius(12.0)
+                        .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(0, 180, 255)))
+                        .inner_margin(24.0)
+                        .show(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.label(
+                                    egui::RichText::new("GAME PAUSED")
+                                        .font(egui::FontId::proportional(28.0))
+                                        .color(egui::Color32::from_rgb(0, 180, 255))
+                                        .strong(),
+                                );
+                                
+                                ui.add_space(8.0);
+                                
+                                // Display current stats
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Wave {}  |  ❤️ {}  |  💰 {}",
+                                        self.wave_manager.current_wave_number(),
+                                        self.player_stats.lives,
+                                        self.economy.money
+                                    ))
+                                    .font(egui::FontId::proportional(16.0))
+                                    .color(egui::Color32::LIGHT_GRAY)
+                                );
+
+                                ui.add_space(20.0);
+
+                                let btn_width = 180.0;
+                                let btn_height = 36.0;
+
+                                // 1. Resume Button
+                                let resume_btn = egui::Button::new(
+                                    egui::RichText::new("▶  Resume")
+                                        .font(egui::FontId::proportional(18.0))
+                                        .color(egui::Color32::WHITE)
+                                        .strong()
+                                )
+                                .fill(egui::Color32::from_rgb(46, 125, 50)) // Sleek Green
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(102, 187, 106)));
+
+                                if ui.add_sized([btn_width, btn_height], resume_btn).clicked() {
+                                    self.game_state = crate::game::game_state::GameState::Playing;
+                                    log::info!("Resumed game via Pause Menu button");
+                                }
+
+                                ui.add_space(12.0);
+
+                                // 2. Restart Button
+                                let restart_btn = egui::Button::new(
+                                    egui::RichText::new("🔄  Restart")
+                                        .font(egui::FontId::proportional(18.0))
+                                        .color(egui::Color32::WHITE)
+                                        .strong()
+                                )
+                                .fill(egui::Color32::from_rgb(21, 101, 192)) // Sleek Blue
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(100, 181, 246)));
+
+                                if ui.add_sized([btn_width, btn_height], restart_btn).clicked() {
+                                    self.start_game();
+                                    log::info!("Restarted game via Pause Menu button");
+                                }
+
+                                ui.add_space(12.0);
+
+                                // 3. Quit Button
+                                let quit_btn = egui::Button::new(
+                                    egui::RichText::new("🚪  Quit")
+                                        .font(egui::FontId::proportional(18.0))
+                                        .color(egui::Color32::WHITE)
+                                        .strong()
+                                )
+                                .fill(egui::Color32::from_rgb(198, 40, 40)) // Sleek Red
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(239, 83, 80)));
+
+                                if ui.add_sized([btn_width, btn_height], quit_btn).clicked() {
+                                    self.exit_requested = true;
+                                    log::info!("Quit requested via Pause Menu button");
+                                }
+                            });
+                        });
+                });
+        }
+
+        // 3. End frame and tessellate
+        let full_output = self.egui_ctx.end_pass();
+        
+        // Handle egui platform output (textures and viewports)
+        self.egui_state.handle_platform_output(&self.window, full_output.platform_output);
+
+        let paint_jobs = self.egui_ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
+        let screen_descriptor = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [self.config.width, self.config.height],
+            pixels_per_point: self.window.scale_factor() as f32,
+        };
+
+        // 4. Update egui textures
+        for (id, image_delta) in &full_output.textures_delta.set {
+            self.egui_renderer.update_texture(&self.device, &self.queue, *id, image_delta);
+        }
+
+        // 5. Create command encoder for egui buffer updates and rendering
+        let mut egui_encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Egui Encoder"),
+        });
+
+        // 6. Update egui buffers on GPU
+        self.egui_renderer.update_buffers(
+            &self.device,
+            &self.queue,
+            &mut egui_encoder,
+            &paint_jobs,
+            &screen_descriptor,
+        );
+
+        // 7. Render egui using a render pass with LoadOp::Load
+        {
+            let mut render_pass = egui_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Egui Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            }).forget_lifetime();
+
+            self.egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
+        }
+
+        // 8. Submit egui commands & free textures
+        self.queue.submit(std::iter::once(egui_encoder.finish()));
+
+        for id in &full_output.textures_delta.free {
+            self.egui_renderer.free_texture(id);
+        }
+
         output.present();
 
         Ok(())
     }
 
     pub fn input(&mut self, event: &winit::event::WindowEvent) -> bool {
+        let response = self.egui_state.on_window_event(&self.window, event);
+        if response.consumed {
+            return true;
+        }
         match event {
             winit::event::WindowEvent::KeyboardInput {
                 event:
@@ -866,7 +1307,10 @@ impl State {
             winit::event::WindowEvent::MouseInput { state, button, .. } => {
                 self.input.process_mouse_button(*button, *state);
 
-                if *button == winit::event::MouseButton::Left && *state == winit::event::ElementState::Pressed {
+                if self.game_state == crate::game::game_state::GameState::Playing
+                    && *button == winit::event::MouseButton::Left
+                    && *state == winit::event::ElementState::Pressed
+                {
                     if let Some((gx, gz)) = self.hovered_tile {
                         let pos = glam::Vec2::new(gx as f32, gz as f32);
                         let tower_type = crate::game::towers::manager::TowerType::Basic;
@@ -1108,11 +1552,15 @@ fn create_gold_texture(text: &str) -> image::RgbaImage {
     img
 }
 
-fn create_text_texture(text: &str, width: u32, height: u32, color_rgba: [u8; 4]) -> image::RgbaImage {
+fn create_multiline_text_texture(
+    line1: &str,
+    line2: &str,
+    width: u32,
+    height: u32,
+    color1: [u8; 4],
+    color2: [u8; 4],
+) -> image::RgbaImage {
     let mut img = image::RgbaImage::new(width, height);
-    if text.is_empty() {
-        return img;
-    }
     
     // Tiny 3x5 font
     let get_char_bitmap = |c: char| -> &'static [u8; 5] {
@@ -1158,39 +1606,71 @@ fn create_text_texture(text: &str, width: u32, height: u32, color_rgba: [u8; 4])
             '!' => &[2, 2, 2, 0, 2],
             '+' => &[2, 2, 7, 2, 2],
             '-' => &[0, 0, 7, 0, 0],
+            ' ' => &[0, 0, 0, 0, 0],
             _ => &[0, 0, 0, 0, 0],
         }
     };
-    
-    let text_width = text.len() as i32 * 4 - 1;
-    let start_x = (width as i32 - text_width) / 2;
-    let start_y = (height as i32 - 5) / 2;
-    
-    for (char_idx, c) in text.chars().enumerate() {
-        let bitmap = get_char_bitmap(c);
-        let cx = start_x + char_idx as i32 * 4;
+
+    // Draw line 1 (vertical center of top half, e.g. height / 4 = 12 for height = 48)
+    if !line1.is_empty() {
+        let text_width = line1.len() as i32 * 4 - 1;
+        let start_x = (width as i32 - text_width) / 2;
+        let start_y = (height as i32 / 4) - 2;
         
-        for row in 0..5 {
-            let row_val = bitmap[row];
-            let cy = start_y + row as i32;
-            for col in 0..3 {
-                let bit = (row_val >> (2 - col)) & 1;
-                if bit == 1 {
-                    let px = cx + col;
-                    if px >= 0 && px < width as i32 && cy >= 0 && cy < height as i32 {
-                        img.put_pixel(px as u32, cy as u32, image::Rgba(color_rgba));
+        for (char_idx, c) in line1.chars().enumerate() {
+            let bitmap = get_char_bitmap(c);
+            let cx = start_x + char_idx as i32 * 4;
+            
+            for row in 0..5 {
+                let row_val = bitmap[row];
+                let cy = start_y + row as i32;
+                for col in 0..3 {
+                    let bit = (row_val >> (2 - col)) & 1;
+                    if bit == 1 {
+                        let px = cx + col;
+                        if px >= 0 && px < width as i32 && cy >= 0 && cy < height as i32 {
+                            img.put_pixel(px as u32, cy as u32, image::Rgba(color1));
+                        }
                     }
                 }
             }
         }
     }
-    
-    // Outline pass: for any pixel of our text color, check its 8 neighbors. If they are empty, make them black.
+
+    // Draw line 2 (vertical center of bottom half, e.g. 3 * height / 4 = 36 for height = 48)
+    if !line2.is_empty() {
+        let text_width = line2.len() as i32 * 4 - 1;
+        let start_x = (width as i32 - text_width) / 2;
+        let start_y = (3 * height as i32 / 4) - 2;
+        
+        for (char_idx, c) in line2.chars().enumerate() {
+            let bitmap = get_char_bitmap(c);
+            let cx = start_x + char_idx as i32 * 4;
+            
+            for row in 0..5 {
+                let row_val = bitmap[row];
+                let cy = start_y + row as i32;
+                for col in 0..3 {
+                    let bit = (row_val >> (2 - col)) & 1;
+                    if bit == 1 {
+                        let px = cx + col;
+                        if px >= 0 && px < width as i32 && cy >= 0 && cy < height as i32 {
+                            img.put_pixel(px as u32, cy as u32, image::Rgba(color2));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Outline pass: for any pixel of our text colors, check its 8 neighbors. If they are empty, make them black.
     let mut text_pixels = std::collections::HashSet::new();
     for y in 0..height {
         for x in 0..width {
             let p = img.get_pixel(x, y);
-            if p[3] > 0 && p[0] == color_rgba[0] && p[1] == color_rgba[1] && p[2] == color_rgba[2] {
+            let is_colored1 = p[3] > 0 && p[0] == color1[0] && p[1] == color1[1] && p[2] == color1[2];
+            let is_colored2 = p[3] > 0 && p[0] == color2[0] && p[1] == color2[1] && p[2] == color2[2];
+            if is_colored1 || is_colored2 {
                 text_pixels.insert((x as i32, y as i32));
             }
         }
@@ -1255,4 +1735,28 @@ mod tests {
 
         assert!(ray_aabb(origin, dir, min, max).is_none());
     }
+}
+
+#[allow(dead_code)]
+fn dummy_compile_test(device: &wgpu::Device, window: &winit::window::Window) {
+    let egui_ctx = egui::Context::default();
+    let viewport_id = egui_ctx.viewport_id();
+    let _egui_state = egui_winit::State::new(
+        egui_ctx.clone(),
+        viewport_id,
+        window,
+        Some(window.scale_factor() as f32),
+        None,
+        None,
+    );
+    let _egui_renderer = egui_wgpu::Renderer::new(
+        device,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        egui_wgpu::RendererOptions {
+            msaa_samples: 1,
+            depth_stencil_format: None,
+            dithering: true,
+            predictable_texture_filtering: false,
+        },
+    );
 }
