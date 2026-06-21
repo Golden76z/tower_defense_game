@@ -54,6 +54,8 @@ pub struct State {
     show_path_debug: bool,
     /// Economy tracking player money.
     pub economy: crate::game::economy::Economy,
+    /// Player stats including lives.
+    pub player_stats: crate::game::player_stats::PlayerStats,
     /// Feedback status message shown in the window title.
     pub placement_status: String,
     /// Gold reward popup sprites.
@@ -205,13 +207,8 @@ impl State {
         
         // Spawn test enemies if we have a path
         if let Some(start_pos) = map.path.start() {
-            for _i in 0..5 {
-                let enemy = crate::game::enemies::basic_enemy::BasicEnemy::new(start_pos);
-                // Offset them visually or just spawn them? They will overlap if spawned at the exact same time.
-                // We will just let them overlap for now, or we can space them out by not spawning them all at once.
-                // We'll spawn one for now to test, actually let's spawn a few.
-                enemy_manager.spawn_enemy(Box::new(enemy));
-            }
+            let enemy = crate::game::enemies::basic_enemy::BasicEnemy::new(start_pos);
+            enemy_manager.spawn_enemy(Box::new(enemy));
         }
 
         let state = Self {
@@ -248,6 +245,7 @@ impl State {
             input: crate::engine::input::InputState::new(),
             show_path_debug: false,
             economy: crate::game::economy::Economy::new(200),
+            player_stats: crate::game::player_stats::PlayerStats::new(5),
             placement_status: "Ready".to_string(),
             popups: Vec::new(),
             popup_texture_id,
@@ -271,7 +269,9 @@ impl State {
 
     pub fn update_window_title(&self) {
         let title = format!(
-            "Isoguard - Gold: {} | Basic Tower Cost: {} | Status: {}",
+            "Isoguard - Lives: {}/{} | Gold: {} | Basic Tower Cost: {} | Status: {}",
+            self.player_stats.lives,
+            self.player_stats.max_lives,
             self.economy.money,
             crate::game::towers::manager::TowerType::Basic.cost(),
             self.placement_status
@@ -313,6 +313,9 @@ impl State {
     /// so simulation behaves identically regardless of frame rate. Future game
     /// logic (enemies, projectiles, towers, economy) steps here.
     fn fixed_update(&mut self, dt: f32) {
+        if !self.player_stats.is_alive() {
+            return;
+        }
         self.time_elapsed += dt;
         self.camera_controller.update_camera(&mut self.camera, dt);
         
@@ -323,7 +326,16 @@ impl State {
             }
         }
         
-        let killed = self.enemy_manager.update(dt, &self.map.path);
+        let (killed, escaped) = self.enemy_manager.update(dt, &self.map.path);
+
+        if escaped > 0 {
+            self.player_stats.take_damage(escaped as i32);
+            if !self.player_stats.is_alive() {
+                self.placement_status = "GAME OVER!".to_string();
+            }
+            self.update_window_title();
+        }
+
         for (pos, reward) in killed {
             self.economy.add_money(reward as i32);
             self.update_window_title();

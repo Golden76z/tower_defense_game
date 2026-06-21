@@ -113,6 +113,9 @@ mod tests {
         fn get_reward(&self) -> u32 {
             0
         }
+        fn has_reached_end(&self, _path: &Path) -> bool {
+            false
+        }
     }
 
     #[test]
