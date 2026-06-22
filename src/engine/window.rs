@@ -92,6 +92,8 @@ pub struct State {
     egui_state: egui_winit::State,
     /// egui wgpu renderer.
     egui_renderer: egui_wgpu::Renderer,
+    /// Index of the selected tower for upgrades.
+    pub selected_tower_index: Option<usize>,
 }
 
 impl State {
@@ -346,6 +348,7 @@ impl State {
             egui_ctx,
             egui_state,
             egui_renderer,
+            selected_tower_index: None,
         };
 
         state.update_window_title();
@@ -365,6 +368,7 @@ impl State {
         self.tower_manager = crate::game::towers::manager::TowerManager::new();
         self.projectiles.clear();
         self.popups.clear();
+        self.selected_tower_index = None;
 
         self.continued_after_victory = false;
         self.game_state = crate::game::game_state::GameState::Playing;
@@ -634,12 +638,20 @@ impl State {
             
             let world_y = tile_y as f32 * TILE_WORLD_SIZE + TILE_WORLD_SIZE * 0.5;
 
-            // Draw tower model
-            // Scale and texture depends on tower type (sniper tower model is larger and textured)
-            let scale = match tower.tower_type() {
+            // Apply scale and color tint based on upgrade level
+            let level = tower.get_level();
+            let (scale_multiplier, tint_color) = match level {
+                1 => (1.0, [1.0, 1.0, 1.0, 1.0]),
+                2 => (1.1, [0.75, 1.0, 1.0, 1.0]),  // Cyan-silver tint, 1.1x scale
+                3 => (1.2, [1.0, 0.85, 0.3, 1.0]), // Gold tint, 1.2x scale
+                _ => (1.0, [1.0, 1.0, 1.0, 1.0]),
+            };
+
+            let base_scale = match tower.tower_type() {
                 crate::game::towers::manager::TowerType::Basic => TILE_WORLD_SIZE * 0.6,
                 crate::game::towers::manager::TowerType::Sniper => TILE_WORLD_SIZE * 0.25,
             };
+            let scale = base_scale * scale_multiplier;
             
             // BasicTower's rotation is an angle in the XY plane where +X is 0, +Y is PI/2.
             // In 3D, our camera XZ plane maps from 2D XY. So +Y in 2D is +Z in 3D.
@@ -660,12 +672,48 @@ impl State {
                 glam::Vec3::new(world_x, world_y, world_z),
                 scale,
                 rot_y,
-                [1.0, 1.0, 1.0, 1.0], // White tint -> show the model's baked colors
+                tint_color,
             );
             
             let tex_id = self.highlight_texture_id;
             self.batcher.add_model(vertices, tex_id);
         }
+
+        // Draw selection highlight and range indicators for selected tower
+        if let Some(idx) = self.selected_tower_index {
+            if let Some(tower) = self.tower_manager.towers.get(idx) {
+                let pos = tower.get_position();
+                let gx = pos.x.round() as i32;
+                let gy = pos.y.round() as i32;
+                if let Some(tile) = self.map.get_tile(gx, gy) {
+                    let pos_x = (gx as f32 - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
+                    let pos_z = (gy as f32 - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
+                    let center_y = tile.grid_y as f32 * TILE_WORLD_SIZE;
+                    
+                    // Render selected tower highlight box (blue outline)
+                    let size = glam::Vec3::splat(TILE_WORLD_SIZE + HIGHLIGHT_INFLATE);
+                    self.batcher.add_highlight_box(
+                        glam::Vec3::new(pos_x, center_y, pos_z),
+                        size,
+                        [0.0, 0.6, 1.0, 0.45], // Blue highlight
+                        self.highlight_texture_id,
+                    );
+                    
+                    // Render range indicator circle on the ground
+                    let range_radius = tower.get_range();
+                    let range_world_size = range_radius * 2.0 * TILE_WORLD_SIZE;
+                    let range_y = center_y + TILE_WORLD_SIZE * 0.5 + 0.01;
+                    
+                    self.batcher.add_overlay_quad(
+                        glam::Vec3::new(pos_x, range_y, pos_z),
+                        glam::Vec3::new(range_world_size, 0.0, range_world_size),
+                        [0.0, 0.7, 1.0, 0.25], // Semi-transparent blue
+                        self.highlight_texture_id,
+                    );
+                }
+            }
+        }
+
 
         // Draw enemies
         for enemy in self.enemy_manager.get_enemies() {
@@ -1270,6 +1318,164 @@ impl State {
                 });
         }
 
+        // Draw Selected Tower Info / Upgrade Panel (right-center)
+        let mut upgrade_triggered = false;
+        let mut close_triggered = false;
+        
+        if self.game_state == crate::game::game_state::GameState::Playing {
+            if let Some(idx) = self.selected_tower_index {
+                if let Some(tower) = self.tower_manager.towers.get(idx) {
+                    let tower_type = tower.tower_type();
+                    let level = tower.get_level();
+                    let current_damage = tower.get_damage();
+                    let current_range = tower.get_range();
+                    let current_fire_rate = tower.get_fire_rate();
+                    
+                    let (can_upgrade, upgrade_cost) = if level < 3 {
+                        if let Some(cost) = tower.get_upgrade_cost() {
+                            (true, cost)
+                        } else {
+                            (false, 0)
+                        }
+                    } else {
+                        (false, 0)
+                    };
+                    let can_afford_upgrade = self.economy.money >= upgrade_cost;
+
+                    egui::Area::new(egui::Id::new("hud_upgrade_panel"))
+                        .anchor(egui::Align2::RIGHT_CENTER, egui::vec2(-20.0, 0.0))
+                        .show(&self.egui_ctx, |ui| {
+                            egui::Frame::NONE
+                                .fill(egui::Color32::from_black_alpha(200))
+                                .corner_radius(12.0)
+                                .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(0, 180, 255)))
+                                .inner_margin(16.0)
+                                .show(ui, |ui| {
+                                    ui.set_max_width(260.0);
+                                    ui.vertical(|ui| {
+                                        ui.label(
+                                            egui::RichText::new("🏰 SELECTED TOWER")
+                                                .font(egui::FontId::proportional(16.0))
+                                                .color(egui::Color32::from_rgb(0, 180, 255))
+                                                .strong()
+                                        );
+                                        ui.add_space(8.0);
+                                        
+                                        ui.label(
+                                            egui::RichText::new(format!("{:?} (Level {})", tower_type, level))
+                                                .font(egui::FontId::proportional(18.0))
+                                                .color(egui::Color32::WHITE)
+                                                .strong()
+                                        );
+                                        
+                                        ui.add_space(8.0);
+                                        ui.separator();
+                                        ui.add_space(8.0);
+                                        
+                                        // Current Stats
+                                        ui.label(egui::RichText::new("Current Stats:").strong().color(egui::Color32::LIGHT_GRAY));
+                                        ui.label(format!("• Damage: {}", current_damage));
+                                        ui.label(format!("• Range: {:.1}", current_range));
+                                        ui.label(format!("• Attack Speed: {:.2}/s", current_fire_rate));
+                                        
+                                        ui.add_space(12.0);
+                                        
+                                        if can_upgrade {
+                                            // Stats after upgrade
+                                            let next_lvl = level + 1;
+                                            let (dmg_inc, rng_inc) = match next_lvl {
+                                                2 => (0.50, 0.25),
+                                                3 => (1.00, 0.50),
+                                                _ => (0.0, 0.0),
+                                            };
+                                            let base_dmg = match tower_type {
+                                                crate::game::towers::manager::TowerType::Basic => 30.0,
+                                                crate::game::towers::manager::TowerType::Sniper => 100.0,
+                                            };
+                                            let base_rng = match tower_type {
+                                                crate::game::towers::manager::TowerType::Basic => 4.0,
+                                                crate::game::towers::manager::TowerType::Sniper => 12.0,
+                                            };
+                                            let next_damage = base_dmg * (1.0 + dmg_inc);
+                                            let next_range = base_rng * (1.0 + rng_inc);
+
+                                            ui.label(egui::RichText::new("Next Level Stats:").strong().color(egui::Color32::from_rgb(0, 255, 100)));
+                                            ui.label(format!("• Damage: {} ( +{} )", next_damage, next_damage - current_damage));
+                                            ui.label(format!("• Range: {:.1} ( +{:.1} )", next_range, next_range - current_range));
+                                            
+                                            ui.add_space(16.0);
+                                            
+                                            let upgrade_text = format!("✨ Upgrade ({}g)", upgrade_cost);
+                                            let upgrade_btn = egui::Button::new(
+                                                egui::RichText::new(upgrade_text)
+                                                    .font(egui::FontId::proportional(16.0))
+                                                    .color(egui::Color32::WHITE)
+                                                    .strong()
+                                            )
+                                            .fill(if can_afford_upgrade { egui::Color32::from_rgb(46, 125, 50) } else { egui::Color32::from_rgb(120, 40, 40) })
+                                            .stroke(egui::Stroke::new(1.5, if can_afford_upgrade { egui::Color32::from_rgb(102, 187, 106) } else { egui::Color32::from_rgb(200, 100, 100) }));
+                                            
+                                            let response = ui.add_sized([220.0, 40.0], upgrade_btn);
+                                            if !can_afford_upgrade {
+                                                response.on_hover_text("Insufficient gold!");
+                                            } else if response.clicked() {
+                                                upgrade_triggered = true;
+                                            }
+                                        } else {
+                                            ui.label(
+                                                egui::RichText::new("⭐ MAX LEVEL REACHED")
+                                                    .font(egui::FontId::proportional(14.0))
+                                                    .color(egui::Color32::from_rgb(255, 220, 0))
+                                                    .strong()
+                                            );
+                                        }
+                                        
+                                        ui.add_space(12.0);
+                                        
+                                        // Close button
+                                        let close_btn = egui::Button::new(
+                                            egui::RichText::new("Close")
+                                                .font(egui::FontId::proportional(14.0))
+                                                .color(egui::Color32::WHITE)
+                                        )
+                                        .fill(egui::Color32::from_black_alpha(100))
+                                        .stroke(egui::Stroke::new(1.0, egui::Color32::GRAY));
+                                        
+                                        if ui.add_sized([220.0, 28.0], close_btn).clicked() {
+                                            close_triggered = true;
+                                        }
+                                    });
+                                });
+                        });
+                }
+            }
+        }
+
+        if upgrade_triggered {
+            if let Some(idx) = self.selected_tower_index {
+                if let Some(tower) = self.tower_manager.towers.get_mut(idx) {
+                    let tower_type = tower.tower_type();
+                    let current_level = tower.get_level();
+                    if let Some(cost) = tower.get_upgrade_cost() {
+                        if self.economy.purchase(cost) {
+                            if let Ok(_) = tower.upgrade() {
+                                self.placement_status = format!("Upgraded {:?} to Level {}", tower_type, current_level + 1);
+                                self.update_window_title();
+                                log::info!("Upgraded tower at index {} to level {}", idx, current_level + 1);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if close_triggered {
+            self.selected_tower_index = None;
+            self.placement_status = "Ready".to_string();
+            self.update_window_title();
+        }
+
+
         // Draw Pause Menu if in GameState::Paused
         if self.game_state == crate::game::game_state::GameState::Paused {
             let egui_ctx = self.egui_ctx.clone();
@@ -1460,18 +1666,38 @@ impl State {
                     && *state == winit::event::ElementState::Pressed
                 {
                     if let Some((gx, gz)) = self.hovered_tile {
-                        let pos = glam::Vec2::new(gx as f32, gz as f32);
-                        let tower_type = self.selected_tower_type;
-                        match self.tower_manager.place_tower(&self.map, pos, tower_type, &mut self.economy) {
-                            Ok(_) => {
-                                log::info!("Placed {:?} tower at {}, {}", tower_type, gx, gz);
-                                self.placement_status = format!("Placed {:?} tower at ({}, {})", tower_type, gx, gz);
-                                self.update_window_title();
+                        // Check if a tower is at the clicked tile
+                        let mut clicked_tower_idx = None;
+                        for (idx, tower) in self.tower_manager.towers.iter().enumerate() {
+                            let t_pos = tower.get_position();
+                            if t_pos.x.round() as i32 == gx && t_pos.y.round() as i32 == gz {
+                                clicked_tower_idx = Some(idx);
+                                break;
                             }
-                            Err(e) => {
-                                log::warn!("Failed to place tower: {}", e);
-                                self.placement_status = format!("Failed to place tower: {}", e);
-                                self.update_window_title();
+                        }
+
+                        if let Some(idx) = clicked_tower_idx {
+                            self.selected_tower_index = Some(idx);
+                            self.placement_status = format!("Selected level {} {:?}", self.tower_manager.towers[idx].get_level(), self.tower_manager.towers[idx].tower_type());
+                            self.update_window_title();
+                        } else if self.selected_tower_index.is_some() {
+                            self.selected_tower_index = None;
+                            self.placement_status = "Ready".to_string();
+                            self.update_window_title();
+                        } else {
+                            let pos = glam::Vec2::new(gx as f32, gz as f32);
+                            let tower_type = self.selected_tower_type;
+                            match self.tower_manager.place_tower(&self.map, pos, tower_type, &mut self.economy) {
+                                Ok(_) => {
+                                    log::info!("Placed {:?} tower at {}, {}", tower_type, gx, gz);
+                                    self.placement_status = format!("Placed {:?} tower at ({}, {})", tower_type, gx, gz);
+                                    self.update_window_title();
+                                }
+                                Err(e) => {
+                                    log::warn!("Failed to place tower: {}", e);
+                                    self.placement_status = format!("Failed to place tower: {}", e);
+                                    self.update_window_title();
+                                }
                             }
                         }
                     }

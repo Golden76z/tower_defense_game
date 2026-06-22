@@ -12,6 +12,7 @@ pub struct SniperTower {
     pub cooldown: f32,
     pub cost: u32,
     pub rotation: f32,
+    pub level: u32,
 }
 
 impl SniperTower {
@@ -24,6 +25,25 @@ impl SniperTower {
             cooldown: 0.0,
             cost: 150,
             rotation: 0.0,
+            level: 1,
+        }
+    }
+
+    pub fn get_current_range(&self) -> f32 {
+        match self.level {
+            1 => self.range,
+            2 => self.range * 1.25,
+            3 => self.range * 1.5,
+            _ => self.range,
+        }
+    }
+
+    pub fn get_current_damage(&self) -> f32 {
+        match self.level {
+            1 => self.damage,
+            2 => self.damage * 1.5,
+            3 => self.damage * 2.0,
+            _ => self.damage,
         }
     }
 }
@@ -44,7 +64,7 @@ impl Tower for SniperTower {
                 }
                 
                 let dist = self.position.distance(enemy.get_position());
-                if dist <= self.range && dist < min_distance {
+                if dist <= self.get_range() && dist < min_distance {
                     min_distance = dist;
                     nearest_enemy = Some(enemy);
                 }
@@ -57,7 +77,7 @@ impl Tower for SniperTower {
                 // 0.75 = barrel height above the tile surface in tile units
                 // (tower model barrel at y~1.25 * tower render scale 0.6).
                 // Use a high speed of 25.0 for sniper shots.
-                return Some(Projectile::new(self.position, target.get_position(), 25.0, self.damage, 0.75));
+                return Some(Projectile::new(self.position, target.get_position(), 25.0, self.get_damage(), 0.75));
             }
         }
 
@@ -73,7 +93,7 @@ impl Tower for SniperTower {
     }
 
     fn get_range(&self) -> f32 {
-        self.range
+        self.get_current_range()
     }
 
     fn get_rotation(&self) -> f32 {
@@ -82,6 +102,35 @@ impl Tower for SniperTower {
 
     fn tower_type(&self) -> TowerType {
         TowerType::Sniper
+    }
+
+    fn get_level(&self) -> u32 {
+        self.level
+    }
+
+    fn upgrade(&mut self) -> Result<(), &'static str> {
+        if self.level < 3 {
+            self.level += 1;
+            Ok(())
+        } else {
+            Err("Max level reached")
+        }
+    }
+
+    fn get_upgrade_cost(&self) -> Option<i32> {
+        match self.level {
+            1 => Some((self.cost / 2) as i32), // 50%
+            2 => Some(self.cost as i32),        // 100%
+            _ => None,
+        }
+    }
+
+    fn get_damage(&self) -> f32 {
+        self.get_current_damage()
+    }
+
+    fn get_fire_rate(&self) -> f32 {
+        self.fire_rate
     }
 }
 
@@ -168,5 +217,32 @@ mod tests {
         let projectile = tower.update(0.1, &enemies);
         assert!(projectile.is_none(), "Sniper should not shoot at enemy out of range");
         assert_eq!(tower.cooldown, 0.0);
+    }
+
+    #[test]
+    fn test_sniper_tower_upgrades() {
+        let mut tower = SniperTower::new(Vec2::new(0.0, 0.0));
+        assert_eq!(tower.get_level(), 1);
+        assert_eq!(tower.get_upgrade_cost(), Some(75));
+        assert_eq!(tower.get_damage(), 100.0);
+        assert_eq!(tower.get_range(), 12.0);
+
+        // Upgrade to lvl 2
+        assert!(tower.upgrade().is_ok());
+        assert_eq!(tower.get_level(), 2);
+        assert_eq!(tower.get_upgrade_cost(), Some(150));
+        assert_eq!(tower.get_damage(), 150.0);
+        assert_eq!(tower.get_range(), 15.0);
+
+        // Upgrade to lvl 3
+        assert!(tower.upgrade().is_ok());
+        assert_eq!(tower.get_level(), 3);
+        assert_eq!(tower.get_upgrade_cost(), None);
+        assert_eq!(tower.get_damage(), 200.0);
+        assert_eq!(tower.get_range(), 18.0);
+
+        // Attempting to upgrade further should fail
+        assert!(tower.upgrade().is_err());
+        assert_eq!(tower.get_level(), 3);
     }
 }

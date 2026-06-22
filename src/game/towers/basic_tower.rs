@@ -11,6 +11,7 @@ pub struct BasicTower {
     pub cooldown: f32,
     pub cost: u32,
     pub rotation: f32,
+    pub level: u32,
 }
 
 impl BasicTower {
@@ -23,6 +24,25 @@ impl BasicTower {
             cooldown: 0.0,
             cost: 50,
             rotation: 0.0,
+            level: 1,
+        }
+    }
+
+    pub fn get_current_range(&self) -> f32 {
+        match self.level {
+            1 => self.range,
+            2 => self.range * 1.25,
+            3 => self.range * 1.5,
+            _ => self.range,
+        }
+    }
+
+    pub fn get_current_damage(&self) -> f32 {
+        match self.level {
+            1 => self.damage,
+            2 => self.damage * 1.5,
+            3 => self.damage * 2.0,
+            _ => self.damage,
         }
     }
 }
@@ -43,7 +63,7 @@ impl Tower for BasicTower {
                 }
                 
                 let dist = self.position.distance(enemy.get_position());
-                if dist <= self.range && dist < min_distance {
+                if dist <= self.get_range() && dist < min_distance {
                     min_distance = dist;
                     nearest_enemy = Some(enemy);
                 }
@@ -55,7 +75,7 @@ impl Tower for BasicTower {
                 self.cooldown = 1.0 / self.fire_rate;
                 // 0.6 = barrel height above the tile surface in tile units
                 // (tower model barrel at y~1.0 * tower render scale 0.6).
-                return Some(Projectile::new(self.position, target.get_position(), 15.0, self.damage, 0.6));
+                return Some(Projectile::new(self.position, target.get_position(), 15.0, self.get_damage(), 0.6));
             }
         }
 
@@ -71,7 +91,7 @@ impl Tower for BasicTower {
     }
 
     fn get_range(&self) -> f32 {
-        self.range
+        self.get_current_range()
     }
 
     fn get_rotation(&self) -> f32 {
@@ -80,6 +100,35 @@ impl Tower for BasicTower {
 
     fn tower_type(&self) -> crate::game::towers::manager::TowerType {
         crate::game::towers::manager::TowerType::Basic
+    }
+
+    fn get_level(&self) -> u32 {
+        self.level
+    }
+
+    fn upgrade(&mut self) -> Result<(), &'static str> {
+        if self.level < 3 {
+            self.level += 1;
+            Ok(())
+        } else {
+            Err("Max level reached")
+        }
+    }
+
+    fn get_upgrade_cost(&self) -> Option<i32> {
+        match self.level {
+            1 => Some((self.cost / 2) as i32), // 50%
+            2 => Some(self.cost as i32),        // 100%
+            _ => None,
+        }
+    }
+
+    fn get_damage(&self) -> f32 {
+        self.get_current_damage()
+    }
+
+    fn get_fire_rate(&self) -> f32 {
+        self.fire_rate
     }
 }
 
@@ -187,5 +236,32 @@ mod tests {
         // atan2(5.0, 0.0) is PI/2
         use std::f32::consts::PI;
         assert!((tower.rotation - PI / 2.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_basic_tower_upgrades() {
+        let mut tower = BasicTower::new(Vec2::new(0.0, 0.0));
+        assert_eq!(tower.get_level(), 1);
+        assert_eq!(tower.get_upgrade_cost(), Some(25));
+        assert_eq!(tower.get_damage(), 25.0);
+        assert_eq!(tower.get_range(), 5.0);
+
+        // Upgrade to lvl 2
+        assert!(tower.upgrade().is_ok());
+        assert_eq!(tower.get_level(), 2);
+        assert_eq!(tower.get_upgrade_cost(), Some(50));
+        assert_eq!(tower.get_damage(), 37.5);
+        assert_eq!(tower.get_range(), 6.25);
+
+        // Upgrade to lvl 3
+        assert!(tower.upgrade().is_ok());
+        assert_eq!(tower.get_level(), 3);
+        assert_eq!(tower.get_upgrade_cost(), None);
+        assert_eq!(tower.get_damage(), 50.0);
+        assert_eq!(tower.get_range(), 7.5);
+
+        // Attempting to upgrade further should fail
+        assert!(tower.upgrade().is_err());
+        assert_eq!(tower.get_level(), 3);
     }
 }
