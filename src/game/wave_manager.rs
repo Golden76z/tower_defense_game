@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnemyType {
     Basic,
+    Fast,
 }
 
 #[derive(Debug, Clone)]
@@ -57,21 +58,35 @@ impl WaveManager {
                     spawn_delay: 0.5,
                 }],
             },
-            // Wave 2: 15 BasicEnemy, 0.4s delay between spawns
+            // Wave 2: 8 BasicEnemy, 5 FastEnemy
             Wave {
-                enemy_spawns: vec![EnemySpawn {
-                    enemy_type: EnemyType::Basic,
-                    count: 15,
-                    spawn_delay: 0.4,
-                }],
+                enemy_spawns: vec![
+                    EnemySpawn {
+                        enemy_type: EnemyType::Basic,
+                        count: 8,
+                        spawn_delay: 0.5,
+                    },
+                    EnemySpawn {
+                        enemy_type: EnemyType::Fast,
+                        count: 5,
+                        spawn_delay: 0.3,
+                    },
+                ],
             },
-            // Wave 3: 20 BasicEnemy, 0.3s delay between spawns
+            // Wave 3: 12 BasicEnemy, 10 FastEnemy
             Wave {
-                enemy_spawns: vec![EnemySpawn {
-                    enemy_type: EnemyType::Basic,
-                    count: 20,
-                    spawn_delay: 0.3,
-                }],
+                enemy_spawns: vec![
+                    EnemySpawn {
+                        enemy_type: EnemyType::Basic,
+                        count: 12,
+                        spawn_delay: 0.4,
+                    },
+                    EnemySpawn {
+                        enemy_type: EnemyType::Fast,
+                        count: 10,
+                        spawn_delay: 0.25,
+                    },
+                ],
             },
         ]
     }
