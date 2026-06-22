@@ -15,7 +15,7 @@ impl Model {
     /// Loads a `.obj` model from the given path.
     pub fn load<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         // Load the OBJ file using tobj
-        let (models, _materials) = tobj::load_obj(
+        let (models, materials) = tobj::load_obj(
             path.as_ref(),
             &tobj::LoadOptions {
                 single_index: true,     // Convert everything to a single index buffer layout
@@ -25,10 +25,30 @@ impl Model {
             },
         )?;
 
+        let materials = materials.ok();
         let mut vertices = Vec::new();
 
         for model in models {
             let mesh = &model.mesh;
+            
+            // Look up material diffuse color if available
+            let material_color = if let Some(ref mats) = materials {
+                if let Some(mat_id) = mesh.material_id {
+                    if mat_id < mats.len() {
+                        if let Some(diff) = mats[mat_id].diffuse {
+                            Some([diff[0], diff[1], diff[2], 1.0])
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             
             // Loop through each triangle
             for i in 0..mesh.indices.len() / 3 {
@@ -55,8 +75,8 @@ impl Model {
                     };
                     
                     // Use baked per-vertex colors if the OBJ provides them
-                    // (extended `v x y z r g b` format), otherwise white. This
-                    // lets low-poly models carry baked facet shading.
+                    // (extended `v x y z r g b` format), otherwise use material color,
+                    // otherwise fallback to white.
                     let color = if mesh.vertex_color.len() >= idx * 3 + 3 {
                         [
                             mesh.vertex_color[idx * 3],
@@ -64,6 +84,8 @@ impl Model {
                             mesh.vertex_color[idx * 3 + 2],
                             1.0,
                         ]
+                    } else if let Some(mat_color) = material_color {
+                        mat_color
                     } else {
                         [1.0, 1.0, 1.0, 1.0]
                     };

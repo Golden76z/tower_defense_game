@@ -1,6 +1,7 @@
 use glam::Vec2;
 use crate::game::towers::tower_base::Tower;
 use crate::game::towers::basic_tower::BasicTower;
+use crate::game::towers::sniper_tower::SniperTower;
 use crate::game::projectiles::Projectile;
 use crate::game::enemies::enemy_base::Enemy;
 use crate::game::map::map::Map;
@@ -10,12 +11,14 @@ use crate::game::economy::Economy;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TowerType {
     Basic,
+    Sniper,
 }
 
 impl TowerType {
     pub fn cost(&self) -> i32 {
         match self {
             TowerType::Basic => 50,
+            TowerType::Sniper => 150,
         }
     }
 }
@@ -69,6 +72,7 @@ impl TowerManager {
 
         let tower: Box<dyn Tower> = match tower_type {
             TowerType::Basic => Box::new(BasicTower::new(position)),
+            TowerType::Sniper => Box::new(SniperTower::new(position)),
         };
 
         self.towers.push(tower);

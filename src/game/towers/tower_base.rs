@@ -1,6 +1,7 @@
 use glam::Vec2;
 use crate::game::enemies::enemy_base::Enemy;
 use crate::game::projectiles::Projectile;
+use crate::game::towers::manager::TowerType;
 
 /// Represents a tower in the game.
 ///
@@ -66,4 +67,7 @@ pub trait Tower {
 
     /// Gets the current rotation of the tower in radians.
     fn get_rotation(&self) -> f32;
+
+    /// Gets the type of this tower.
+    fn tower_type(&self) -> TowerType;
 }
