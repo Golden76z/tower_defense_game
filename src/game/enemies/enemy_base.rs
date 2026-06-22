@@ -76,4 +76,16 @@ pub trait Enemy {
 
     /// Checks if the enemy has reached the end of the path.
     fn has_reached_end(&self, path: &Path) -> bool;
+
+    /// Gets the type of this enemy.
+    fn enemy_type(&self) -> crate::game::wave_manager::EnemyType;
+
+    /// Gets the maximum health of this enemy.
+    fn get_max_health(&self) -> f32;
+
+    /// Gets the color of this enemy for rendering.
+    fn get_color(&self) -> [f32; 4];
+
+    /// Gets the scale of this enemy for rendering.
+    fn get_scale(&self) -> f32;
 }

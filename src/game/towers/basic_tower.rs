@@ -55,7 +55,7 @@ impl Tower for BasicTower {
                 self.cooldown = 1.0 / self.fire_rate;
                 // 0.6 = barrel height above the tile surface in tile units
                 // (tower model barrel at y~1.0 * tower render scale 0.6).
-                return Some(Projectile::new(self.position, target.get_position(), 10.0, self.damage, 0.6));
+                return Some(Projectile::new(self.position, target.get_position(), 15.0, self.damage, 0.6));
             }
         }
 
@@ -115,6 +115,18 @@ mod tests {
         }
         fn has_reached_end(&self, _path: &Path) -> bool {
             false
+        }
+        fn enemy_type(&self) -> crate::game::wave_manager::EnemyType {
+            crate::game::wave_manager::EnemyType::Basic
+        }
+        fn get_max_health(&self) -> f32 {
+            100.0
+        }
+        fn get_color(&self) -> [f32; 4] {
+            [1.0, 0.2, 0.2, 1.0]
+        }
+        fn get_scale(&self) -> f32 {
+            0.05
         }
     }
 

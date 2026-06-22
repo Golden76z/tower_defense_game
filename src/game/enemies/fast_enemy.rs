@@ -2,8 +2,8 @@ use glam::Vec2;
 use crate::game::map::path::Path;
 use crate::game::enemies::enemy_base::Enemy;
 
-/// A basic enemy type with simple path following and health.
-pub struct BasicEnemy {
+/// A faster but weaker enemy type with path following and lower health.
+pub struct FastEnemy {
     position: Vec2,
     health: f32,
     speed: f32,
@@ -11,14 +11,14 @@ pub struct BasicEnemy {
     waypoint_index: usize,
 }
 
-impl BasicEnemy {
-    /// Creates a new basic enemy at the given starting position.
+impl FastEnemy {
+    /// Creates a new fast enemy at the given starting position.
     pub fn new(start_position: Vec2) -> Self {
         Self {
             position: start_position,
-            health: 100.0,
-            speed: 2.0,
-            reward: 10,
+            health: 50.0,
+            speed: 4.0,
+            reward: 5,
             waypoint_index: 1, // Start by moving to the second waypoint
         }
     }
@@ -29,7 +29,7 @@ impl BasicEnemy {
     }
 }
 
-impl Enemy for BasicEnemy {
+impl Enemy for FastEnemy {
     fn update(&mut self, dt: f32, path: &Path) {
         if path.is_finished(self.waypoint_index) {
             return;
@@ -75,19 +75,19 @@ impl Enemy for BasicEnemy {
     }
 
     fn enemy_type(&self) -> crate::game::wave_manager::EnemyType {
-        crate::game::wave_manager::EnemyType::Basic
+        crate::game::wave_manager::EnemyType::Fast
     }
 
     fn get_max_health(&self) -> f32 {
-        100.0
+        50.0
     }
 
     fn get_color(&self) -> [f32; 4] {
-        [1.0, 0.2, 0.2, 1.0] // Red
+        [0.2, 0.4, 1.0, 1.0] // Blue
     }
 
     fn get_scale(&self) -> f32 {
-        0.05
+        0.035 // Smaller than BasicEnemy (0.05)
     }
 }
 
@@ -105,44 +105,47 @@ mod tests {
     }
 
     #[test]
-    fn test_enemy_initialization() {
-        let enemy = BasicEnemy::new(Vec2::ZERO);
-        assert_eq!(enemy.get_health(), 100.0);
+    fn test_fast_enemy_initialization() {
+        let enemy = FastEnemy::new(Vec2::ZERO);
+        assert_eq!(enemy.get_health(), 50.0);
+        assert_eq!(enemy.get_max_health(), 50.0);
         assert_eq!(enemy.get_position(), Vec2::ZERO);
         assert!(enemy.is_alive());
-        assert_eq!(enemy.reward(), 10);
+        assert_eq!(enemy.reward(), 5);
+        assert_eq!(enemy.get_scale(), 0.035);
+        assert_eq!(enemy.get_color(), [0.2, 0.4, 1.0, 1.0]);
     }
 
     #[test]
-    fn test_enemy_take_damage() {
-        let mut enemy = BasicEnemy::new(Vec2::ZERO);
-        assert!(enemy.take_damage(40.0));
-        assert_eq!(enemy.get_health(), 60.0);
+    fn test_fast_enemy_take_damage() {
+        let mut enemy = FastEnemy::new(Vec2::ZERO);
+        assert!(enemy.take_damage(20.0));
+        assert_eq!(enemy.get_health(), 30.0);
         assert!(enemy.is_alive());
 
-        assert!(!enemy.take_damage(60.0));
+        assert!(!enemy.take_damage(30.0));
         assert_eq!(enemy.get_health(), 0.0);
         assert!(!enemy.is_alive());
     }
 
     #[test]
-    fn test_enemy_movement() {
+    fn test_fast_enemy_movement() {
         let path = example_path();
-        let mut enemy = BasicEnemy::new(path.start().unwrap());
+        let mut enemy = FastEnemy::new(path.start().unwrap());
 
-        // Speed is 2.0. In 1 second, it should move 2 units towards (10, 0).
+        // Speed is 4.0. In 1 second, it should move 4 units towards (10, 0).
         enemy.update(1.0, &path);
-        assert_eq!(enemy.get_position(), Vec2::new(2.0, 0.0));
+        assert_eq!(enemy.get_position(), Vec2::new(4.0, 0.0));
 
-        // Move another 4 seconds (8 units). Position should be (10.0, 0.0).
-        enemy.update(4.0, &path);
+        // Move another 1.5 seconds (6 units). Position should be (10.0, 0.0).
+        enemy.update(1.5, &path);
         
         // At this exact moment, it's at (10, 0), so it should snap and move on the next update
         enemy.update(0.1, &path);
         // It should have snapped to (10,0) and started moving along Y axis towards (10,10)
-        // In 0.1 seconds at speed 2.0, it moves 0.2 units.
+        // In 0.1 seconds at speed 4.0, it moves 0.4 units.
         let pos = enemy.get_position();
         assert_eq!(pos.x, 10.0);
-        assert!((pos.y - 0.2).abs() < 1e-5);
+        assert!((pos.y - 0.4).abs() < 1e-5);
     }
 }

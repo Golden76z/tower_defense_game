@@ -30,6 +30,10 @@ pub struct State {
     enemy_model: crate::renderer::model::Model,
     /// Texture id for the enemy sprite.
     _enemy_texture_id: usize,
+    /// 3D model for the fast enemy.
+    fast_enemy_model: crate::renderer::model::Model,
+    /// Texture id for the fast enemy sprite.
+    _fast_enemy_texture_id: usize,
     /// Texture id of a 1x1 white texture used to tint overlay quads.
     highlight_texture_id: usize,
     pub tower_manager: crate::game::towers::manager::TowerManager,
@@ -183,6 +187,19 @@ impl State {
         .expect("enemy texture should be valid");
         let enemy_texture_id = renderer.register_texture(&device, &enemy_texture);
 
+        // Load the fast enemy texture
+        let fast_enemy_image = image::open("assets/sprites/fast_enemy.png")
+            .expect("Failed to load fast enemy texture")
+            .to_rgba8();
+        let fast_enemy_texture = crate::renderer::texture::Texture::from_image(
+            &device,
+            &queue,
+            &image::DynamicImage::ImageRgba8(fast_enemy_image),
+            Some("fast_enemy"),
+        )
+        .expect("fast enemy texture should be valid");
+        let fast_enemy_texture_id = renderer.register_texture(&device, &fast_enemy_texture);
+
         // Generate and register gold popup texture
         let popup_image = create_gold_texture("+10");
         let popup_texture = crate::renderer::texture::Texture::from_image(
@@ -217,6 +234,10 @@ impl State {
         // Load 3D model for enemies
         let enemy_model = crate::renderer::model::Model::load("assets/models/enemy.obj")
             .expect("Failed to load enemy.obj model");
+
+        // Load 3D model for fast enemies
+        let fast_enemy_model = crate::renderer::model::Model::load("assets/models/fast_enemy.obj")
+            .expect("Failed to load fast_enemy.obj model");
 
         // Prefer a hand-authored map from JSON; fall back to procedural
         // generation if the file is missing or invalid so the game always
@@ -278,6 +299,8 @@ impl State {
             enemy_manager,
             enemy_model,
             _enemy_texture_id: enemy_texture_id,
+            fast_enemy_model,
+            _fast_enemy_texture_id: fast_enemy_texture_id,
             highlight_texture_id,
             tower_model,
             tower_manager: crate::game::towers::manager::TowerManager::new(),
@@ -453,6 +476,12 @@ impl State {
                 crate::game::wave_manager::EnemyType::Basic => {
                     if let Some(start_pos) = self.map.path.start() {
                         let enemy = crate::game::enemies::basic_enemy::BasicEnemy::new(start_pos);
+                        self.enemy_manager.spawn_enemy(Box::new(enemy));
+                    }
+                }
+                crate::game::wave_manager::EnemyType::Fast => {
+                    if let Some(start_pos) = self.map.path.start() {
+                        let enemy = crate::game::enemies::fast_enemy::FastEnemy::new(start_pos);
                         self.enemy_manager.spawn_enemy(Box::new(enemy));
                     }
                 }
@@ -634,21 +663,27 @@ impl State {
             let world_y = tile_y as f32 * TILE_WORLD_SIZE + TILE_WORLD_SIZE * 0.5 + 0.05;
 
             // Draw enemy model
-            let vertices = self.enemy_model.generate_vertices(
+            let model = match enemy.enemy_type() {
+                crate::game::wave_manager::EnemyType::Basic => &self.enemy_model,
+                crate::game::wave_manager::EnemyType::Fast => &self.fast_enemy_model,
+            };
+            let scale = enemy.get_scale();
+            let color = enemy.get_color();
+            let vertices = model.generate_vertices(
                 glam::Vec3::new(world_x, world_y, world_z),
-                0.05, // scale
+                scale,
                 self.time_elapsed * 2.0, // rotation for visual effect
-                [1.0, 0.2, 0.2, 1.0], // color
+                color,
             );
             self.batcher.add_model(vertices, self.highlight_texture_id);
 
             // Draw health bar
-            let max_health = 100.0; // Hardcoded for now based on BasicEnemy
+            let max_health = enemy.get_max_health();
             let health_pct = (health / max_health).clamp(0.0, 1.0);
             
             let bar_width = 0.08;
             let bar_height = 0.01;
-            let bar_y = world_y + 0.06; // Above the enemy
+            let bar_y = world_y + scale + 0.01; // Dynamic height above the enemy
             
             // Red background (missing health)
             self.batcher.add_sprite(
