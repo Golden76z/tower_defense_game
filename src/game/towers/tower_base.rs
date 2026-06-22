@@ -1,6 +1,7 @@
 use glam::Vec2;
 use crate::game::enemies::enemy_base::Enemy;
 use crate::game::projectiles::Projectile;
+use crate::game::towers::manager::TowerType;
 
 /// Represents a tower in the game.
 ///
@@ -66,4 +67,22 @@ pub trait Tower {
 
     /// Gets the current rotation of the tower in radians.
     fn get_rotation(&self) -> f32;
+
+    /// Gets the type of this tower.
+    fn tower_type(&self) -> TowerType;
+
+    /// Gets the current upgrade level of the tower (1-3).
+    fn get_level(&self) -> u32;
+
+    /// Upgrades the tower to the next level.
+    fn upgrade(&mut self) -> Result<(), &'static str>;
+
+    /// Gets the cost to upgrade to the next level. Returns None if max level is reached.
+    fn get_upgrade_cost(&self) -> Option<i32>;
+
+    /// Gets the current damage of the tower.
+    fn get_damage(&self) -> f32;
+
+    /// Gets the fire rate (shots per second) of the tower.
+    fn get_fire_rate(&self) -> f32;
 }

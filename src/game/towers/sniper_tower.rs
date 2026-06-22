@@ -2,8 +2,9 @@ use glam::Vec2;
 use crate::game::enemies::enemy_base::Enemy;
 use crate::game::projectiles::Projectile;
 use crate::game::towers::tower_base::Tower;
+use crate::game::towers::manager::TowerType;
 
-pub struct BasicTower {
+pub struct SniperTower {
     pub position: Vec2,
     pub range: f32,
     pub damage: f32,
@@ -14,15 +15,15 @@ pub struct BasicTower {
     pub level: u32,
 }
 
-impl BasicTower {
+impl SniperTower {
     pub fn new(position: Vec2) -> Self {
         Self {
             position,
-            range: 5.0,
-            damage: 25.0,
-            fire_rate: 1.0,
+            range: 12.0,
+            damage: 100.0,
+            fire_rate: 0.3, // 0.3 shots per second
             cooldown: 0.0,
-            cost: 50,
+            cost: 150,
             rotation: 0.0,
             level: 1,
         }
@@ -47,7 +48,7 @@ impl BasicTower {
     }
 }
 
-impl Tower for BasicTower {
+impl Tower for SniperTower {
     fn update(&mut self, dt: f32, enemies: &[Box<dyn Enemy>]) -> Option<Projectile> {
         if self.cooldown > 0.0 {
             self.cooldown -= dt;
@@ -73,9 +74,10 @@ impl Tower for BasicTower {
                 let direction = target.get_position() - self.position;
                 self.rotation = direction.y.atan2(direction.x);
                 self.cooldown = 1.0 / self.fire_rate;
-                // 0.6 = barrel height above the tile surface in tile units
-                // (tower model barrel at y~1.0 * tower render scale 0.6).
-                return Some(Projectile::new(self.position, target.get_position(), 15.0, self.get_damage(), 0.6));
+                // 0.75 = barrel height above the tile surface in tile units
+                // (tower model barrel at y~1.25 * tower render scale 0.6).
+                // Use a high speed of 25.0 for sniper shots.
+                return Some(Projectile::new(self.position, target.get_position(), 25.0, self.get_damage(), 0.75));
             }
         }
 
@@ -98,8 +100,8 @@ impl Tower for BasicTower {
         self.rotation
     }
 
-    fn tower_type(&self) -> crate::game::towers::manager::TowerType {
-        crate::game::towers::manager::TowerType::Basic
+    fn tower_type(&self) -> TowerType {
+        TowerType::Sniper
     }
 
     fn get_level(&self) -> u32 {
@@ -184,81 +186,60 @@ mod tests {
     }
 
     #[test]
-    fn test_tower_shoots_enemy_in_range() {
-        let mut tower = BasicTower::new(Vec2::new(0.0, 0.0));
-        let enemies: Vec<Box<dyn Enemy>> = vec![
-            Box::new(MockEnemy::new(Vec2::new(3.0, 4.0), 100.0)), // Distance 5.0
-        ];
-        
-        let projectile = tower.update(0.1, &enemies);
-        assert!(projectile.is_some(), "Tower should shoot at enemy in range");
-        assert_eq!(tower.cooldown, 1.0); // Assuming fire_rate is 1.0
+    fn test_sniper_tower_initialization() {
+        let tower = SniperTower::new(Vec2::new(1.0, 2.0));
+        assert_eq!(tower.get_position(), Vec2::new(1.0, 2.0));
+        assert_eq!(tower.get_range(), 12.0);
+        assert_eq!(tower.damage, 100.0);
+        assert_eq!(tower.fire_rate, 0.3);
+        assert_eq!(tower.tower_type(), TowerType::Sniper);
     }
 
     #[test]
-    fn test_tower_doesnt_shoot_enemy_out_of_range() {
-        let mut tower = BasicTower::new(Vec2::new(0.0, 0.0));
+    fn test_sniper_tower_shoots_enemy_in_range() {
+        let mut tower = SniperTower::new(Vec2::new(0.0, 0.0));
         let enemies: Vec<Box<dyn Enemy>> = vec![
-            Box::new(MockEnemy::new(Vec2::new(4.0, 4.0), 100.0)), // Distance ~5.65 > 5.0
+            Box::new(MockEnemy::new(Vec2::new(6.0, 6.0), 100.0)), // Distance ~8.48 < 12.0
         ];
         
         let projectile = tower.update(0.1, &enemies);
-        assert!(projectile.is_none(), "Tower should not shoot at enemy out of range");
+        assert!(projectile.is_some(), "Sniper should shoot at enemy in range");
+        assert_eq!(tower.cooldown, 1.0 / 0.3); // fire_rate is 0.3
+    }
+
+    #[test]
+    fn test_sniper_tower_doesnt_shoot_enemy_out_of_range() {
+        let mut tower = SniperTower::new(Vec2::new(0.0, 0.0));
+        let enemies: Vec<Box<dyn Enemy>> = vec![
+            Box::new(MockEnemy::new(Vec2::new(10.0, 10.0), 100.0)), // Distance ~14.14 > 12.0
+        ];
+        
+        let projectile = tower.update(0.1, &enemies);
+        assert!(projectile.is_none(), "Sniper should not shoot at enemy out of range");
         assert_eq!(tower.cooldown, 0.0);
     }
 
     #[test]
-    fn test_cooldown_prevents_rapid_fire() {
-        let mut tower = BasicTower::new(Vec2::new(0.0, 0.0));
-        let enemies: Vec<Box<dyn Enemy>> = vec![
-            Box::new(MockEnemy::new(Vec2::new(2.0, 0.0), 100.0)),
-        ];
-        
-        // First shot
-        let projectile1 = tower.update(0.1, &enemies);
-        assert!(projectile1.is_some());
-        
-        // Immediate second update (no time passed effectively for cooldown)
-        let projectile2 = tower.update(0.1, &enemies);
-        assert!(projectile2.is_none(), "Tower should not shoot while on cooldown");
-        assert!(tower.cooldown > 0.0);
-    }
-    
-    #[test]
-    fn test_tower_rotation() {
-        let mut tower = BasicTower::new(Vec2::new(0.0, 0.0));
-        let enemies: Vec<Box<dyn Enemy>> = vec![
-            Box::new(MockEnemy::new(Vec2::new(0.0, 5.0), 100.0)),
-        ];
-        
-        tower.update(0.1, &enemies);
-        
-        // atan2(5.0, 0.0) is PI/2
-        use std::f32::consts::PI;
-        assert!((tower.rotation - PI / 2.0).abs() < 0.0001);
-    }
-
-    #[test]
-    fn test_basic_tower_upgrades() {
-        let mut tower = BasicTower::new(Vec2::new(0.0, 0.0));
+    fn test_sniper_tower_upgrades() {
+        let mut tower = SniperTower::new(Vec2::new(0.0, 0.0));
         assert_eq!(tower.get_level(), 1);
-        assert_eq!(tower.get_upgrade_cost(), Some(25));
-        assert_eq!(tower.get_damage(), 25.0);
-        assert_eq!(tower.get_range(), 5.0);
+        assert_eq!(tower.get_upgrade_cost(), Some(75));
+        assert_eq!(tower.get_damage(), 100.0);
+        assert_eq!(tower.get_range(), 12.0);
 
         // Upgrade to lvl 2
         assert!(tower.upgrade().is_ok());
         assert_eq!(tower.get_level(), 2);
-        assert_eq!(tower.get_upgrade_cost(), Some(50));
-        assert_eq!(tower.get_damage(), 37.5);
-        assert_eq!(tower.get_range(), 6.25);
+        assert_eq!(tower.get_upgrade_cost(), Some(150));
+        assert_eq!(tower.get_damage(), 150.0);
+        assert_eq!(tower.get_range(), 15.0);
 
         // Upgrade to lvl 3
         assert!(tower.upgrade().is_ok());
         assert_eq!(tower.get_level(), 3);
         assert_eq!(tower.get_upgrade_cost(), None);
-        assert_eq!(tower.get_damage(), 50.0);
-        assert_eq!(tower.get_range(), 7.5);
+        assert_eq!(tower.get_damage(), 200.0);
+        assert_eq!(tower.get_range(), 18.0);
 
         // Attempting to upgrade further should fail
         assert!(tower.upgrade().is_err());
