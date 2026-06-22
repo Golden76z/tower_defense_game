@@ -47,6 +47,8 @@ pub struct State {
     projectiles: Vec<crate::game::projectiles::Projectile>,
     /// 3D model for the projectile.
     projectile_model: crate::renderer::model::Model,
+    /// Particle system for visual effects.
+    particles: crate::game::particles::ParticleSystem,
     /// Latest cursor position in physical pixels, or `None` when the cursor is
     /// outside the window.
     cursor_pos: Option<(f64, f64)>,
@@ -94,6 +96,8 @@ pub struct State {
     egui_renderer: egui_wgpu::Renderer,
     /// Index of the selected tower for upgrades.
     pub selected_tower_index: Option<usize>,
+    /// Sound effects system.
+    pub audio: crate::engine::audio::AudioSystem,
 }
 
 impl State {
@@ -295,6 +299,8 @@ impl State {
             },
         );
 
+        let audio = crate::engine::audio::AudioSystem::new();
+
         let state = Self {
             surface,
             device,
@@ -318,6 +324,7 @@ impl State {
             tower_manager: crate::game::towers::manager::TowerManager::new(),
             projectiles: Vec::new(),
             projectile_model,
+            particles: crate::game::particles::ParticleSystem::new(),
             cursor_pos: None,
             hovered_tile: None,
             window,
@@ -349,6 +356,7 @@ impl State {
             egui_state,
             egui_renderer,
             selected_tower_index: None,
+            audio,
         };
 
         state.update_window_title();
@@ -368,6 +376,7 @@ impl State {
         self.tower_manager = crate::game::towers::manager::TowerManager::new();
         self.projectiles.clear();
         self.popups.clear();
+        self.particles.clear();
         self.selected_tower_index = None;
 
         self.continued_after_victory = false;
@@ -525,6 +534,7 @@ impl State {
         for (pos, reward) in killed {
             self.economy.add_money(reward as i32);
             self.update_window_title();
+            self.audio.play_explosion();
             
             // Calculate 3D position for the popup
             let world_x = (pos.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
@@ -540,18 +550,67 @@ impl State {
                 lifetime: 1.0,
                 amount: reward,
             });
+
+            // Spawn enemy death explosion
+            self.particles.spawn_enemy_explosion(glam::Vec3::new(world_x, world_y + 0.02, world_z));
         }
         
         // Update towers and handle projectiles
         let new_projectiles = self.tower_manager.update_all(dt, self.enemy_manager.get_enemies());
+        
+        // Spawn muzzle flash for each new projectile
+        for proj in &new_projectiles {
+            self.audio.play_shoot();
+            let start_gx = proj.start_position.x.round() as i32;
+            let start_gy = proj.start_position.y.round() as i32;
+            let start_tile_y = self.map.get_tile(start_gx, start_gy).map(|t| t.grid_y).unwrap_or(0);
+            
+            let start_world_x = (proj.start_position.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
+            let start_world_z = (proj.start_position.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
+            let start_world_y = (start_tile_y as f32 + 0.5 + proj.spawn_height_offset) * TILE_WORLD_SIZE;
+            let muzzle_pos = glam::Vec3::new(start_world_x, start_world_y, start_world_z);
+
+            let diff = proj.target_position - proj.start_position;
+            let direction = if diff.length_squared() > 0.0001 { diff.normalize() } else { glam::Vec2::new(1.0, 0.0) };
+            self.particles.spawn_muzzle_flash(muzzle_pos, direction);
+        }
+        
         self.projectiles.extend(new_projectiles);
 
         // Update active projectiles
         let mut to_remove = Vec::new();
         for (i, proj) in self.projectiles.iter_mut().enumerate() {
-            if proj.update(dt) {
+            let reached = proj.update(dt);
+            
+            // Calculate current 3D position
+            let pos = proj.position;
+            let world_x = (pos.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
+            let world_z = (pos.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
+            
+            let start_gx = proj.start_position.x.round() as i32;
+            let start_gy = proj.start_position.y.round() as i32;
+            let start_tile_y = self.map.get_tile(start_gx, start_gy).map(|t| t.grid_y).unwrap_or(0);
+            
+            let target_gx = proj.target_position.x.round() as i32;
+            let target_gy = proj.target_position.y.round() as i32;
+            let target_tile_y = self.map.get_tile(target_gx, target_gy).map(|t| t.grid_y).unwrap_or(0);
+
+            let start_world_y = (start_tile_y as f32 + 0.5 + proj.spawn_height_offset) * TILE_WORLD_SIZE;
+            let target_world_y = (target_tile_y as f32 + 0.5) * TILE_WORLD_SIZE + 0.2 * TILE_WORLD_SIZE;
+            
+            let total_dist = proj.start_position.distance(proj.target_position);
+            let current_dist = proj.position.distance(proj.target_position);
+            let t_val = if total_dist > 0.0 { 1.0 - (current_dist / total_dist) } else { 1.0 };
+            
+            let world_y = start_world_y * (1.0 - t_val) + target_world_y * t_val;
+            let proj_pos_3d = glam::Vec3::new(world_x, world_y, world_z);
+
+            if reached {
                 to_remove.push(i);
                 
+                // Spawn impact burst
+                self.particles.spawn_impact_burst(proj_pos_3d);
+
                 // Damage enemies near the target position
                 for enemy in &mut self.enemy_manager.enemies {
                     let dist = enemy.get_position().distance(proj.target_position);
@@ -559,6 +618,14 @@ impl State {
                         enemy.take_damage(proj.damage);
                     }
                 }
+            } else {
+                // Spawn trail particle
+                let trail_color = if proj.speed >= 20.0 {
+                    [0.2, 0.8, 1.0, 0.8] // Cyan/blue trail for sniper
+                } else {
+                    [1.0, 0.7, 0.1, 0.7] // Orange/yellow trail for basic
+                };
+                self.particles.spawn_projectile_trail(proj_pos_3d, trail_color);
             }
         }
 
@@ -573,6 +640,9 @@ impl State {
             popup.lifetime -= dt;
         }
         self.popups.retain(|p| p.lifetime > 0.0);
+
+        // Update particles
+        self.particles.update(dt);
     }
 
     /// Per-frame render preparation: upload the camera matrix, resolve the
@@ -839,6 +909,9 @@ impl State {
                 crate::renderer::sprite::SpriteAlignment::Billboard,
             );
         }
+
+        // Draw particles
+        self.particles.draw(&mut self.batcher, self.highlight_texture_id);
 
         // --- Wave/Game Status UI ---
         let (line1, line2, color1, color2) = match self.game_state {
@@ -1276,6 +1349,7 @@ impl State {
                                     
                                     if ui.add(basic_btn).on_hover_text("Range: 4.0 | DPS: 30.0\nStandard general-purpose defensive tower.").clicked() {
                                         self.selected_tower_type = crate::game::towers::manager::TowerType::Basic;
+                                        self.audio.play_click();
                                         log::info!("Selected Basic Tower for placement");
                                     }
                                     
@@ -1310,6 +1384,7 @@ impl State {
                                     
                                     if ui.add(sniper_btn).on_hover_text("Range: 12.0 | Damage: 100.0\nSlow firing rate, but deals heavy damage over long distances.").clicked() {
                                         self.selected_tower_type = crate::game::towers::manager::TowerType::Sniper;
+                                        self.audio.play_click();
                                         log::info!("Selected Sniper Tower for placement");
                                     }
                                 });
@@ -1420,6 +1495,7 @@ impl State {
                                                 response.on_hover_text("Insufficient gold!");
                                             } else if response.clicked() {
                                                 upgrade_triggered = true;
+                                                self.audio.play_click();
                                             }
                                         } else {
                                             ui.label(
@@ -1443,6 +1519,7 @@ impl State {
                                         
                                         if ui.add_sized([220.0, 28.0], close_btn).clicked() {
                                             close_triggered = true;
+                                            self.audio.play_click();
                                         }
                                     });
                                 });
@@ -1516,7 +1593,40 @@ impl State {
                                     .color(egui::Color32::LIGHT_GRAY)
                                 );
 
-                                ui.add_space(20.0);
+                                ui.add_space(12.0);
+
+                                // SFX Volume Control Slider
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new("🔊 SFX Vol:").color(egui::Color32::WHITE).font(egui::FontId::proportional(16.0)));
+                                    let mut sfx_vol = self.audio.get_volume();
+                                    if ui.add(egui::Slider::new(&mut sfx_vol, 0.0..=1.0)).changed() {
+                                        self.audio.set_volume(sfx_vol);
+                                    }
+                                });
+
+                                ui.add_space(8.0);
+
+                                // Music Volume Control Slider
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new("🎵 Music Vol:").color(egui::Color32::WHITE).font(egui::FontId::proportional(16.0)));
+                                    let mut music_vol = self.audio.get_music_volume();
+                                    if ui.add(egui::Slider::new(&mut music_vol, 0.0..=1.0)).changed() {
+                                        self.audio.set_music_volume(music_vol);
+                                    }
+                                });
+
+                                ui.add_space(8.0);
+
+                                // Music Mute Toggle Checkbox
+                                ui.horizontal(|ui| {
+                                    let mut music_muted = self.audio.get_music_muted();
+                                    if ui.checkbox(&mut music_muted, egui::RichText::new("Mute Music").color(egui::Color32::WHITE).font(egui::FontId::proportional(16.0))).changed() {
+                                        self.audio.set_music_muted(music_muted);
+                                        self.audio.play_click();
+                                    }
+                                });
+
+                                ui.add_space(16.0);
 
                                 let btn_width = 180.0;
                                 let btn_height = 36.0;
@@ -1533,6 +1643,7 @@ impl State {
 
                                 if ui.add_sized([btn_width, btn_height], resume_btn).clicked() {
                                     self.game_state = crate::game::game_state::GameState::Playing;
+                                    self.audio.play_click();
                                     log::info!("Resumed game via Pause Menu button");
                                 }
 
@@ -1550,6 +1661,7 @@ impl State {
 
                                 if ui.add_sized([btn_width, btn_height], restart_btn).clicked() {
                                     self.start_game();
+                                    self.audio.play_click();
                                     log::info!("Restarted game via Pause Menu button");
                                 }
 
@@ -1567,6 +1679,7 @@ impl State {
 
                                 if ui.add_sized([btn_width, btn_height], quit_btn).clicked() {
                                     self.exit_requested = true;
+                                    self.audio.play_click();
                                     log::info!("Quit requested via Pause Menu button");
                                 }
                             });
@@ -1689,6 +1802,7 @@ impl State {
                             let tower_type = self.selected_tower_type;
                             match self.tower_manager.place_tower(&self.map, pos, tower_type, &mut self.economy) {
                                 Ok(_) => {
+                                    self.audio.play_place();
                                     log::info!("Placed {:?} tower at {}, {}", tower_type, gx, gz);
                                     self.placement_status = format!("Placed {:?} tower at ({}, {})", tower_type, gx, gz);
                                     self.update_window_title();
