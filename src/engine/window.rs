@@ -47,6 +47,8 @@ pub struct State {
     projectiles: Vec<crate::game::projectiles::Projectile>,
     /// 3D model for the projectile.
     projectile_model: crate::renderer::model::Model,
+    /// Particle system for visual effects.
+    particles: crate::game::particles::ParticleSystem,
     /// Latest cursor position in physical pixels, or `None` when the cursor is
     /// outside the window.
     cursor_pos: Option<(f64, f64)>,
@@ -318,6 +320,7 @@ impl State {
             tower_manager: crate::game::towers::manager::TowerManager::new(),
             projectiles: Vec::new(),
             projectile_model,
+            particles: crate::game::particles::ParticleSystem::new(),
             cursor_pos: None,
             hovered_tile: None,
             window,
@@ -368,6 +371,7 @@ impl State {
         self.tower_manager = crate::game::towers::manager::TowerManager::new();
         self.projectiles.clear();
         self.popups.clear();
+        self.particles.clear();
         self.selected_tower_index = None;
 
         self.continued_after_victory = false;
@@ -540,18 +544,66 @@ impl State {
                 lifetime: 1.0,
                 amount: reward,
             });
+
+            // Spawn enemy death explosion
+            self.particles.spawn_enemy_explosion(glam::Vec3::new(world_x, world_y + 0.02, world_z));
         }
         
         // Update towers and handle projectiles
         let new_projectiles = self.tower_manager.update_all(dt, self.enemy_manager.get_enemies());
+        
+        // Spawn muzzle flash for each new projectile
+        for proj in &new_projectiles {
+            let start_gx = proj.start_position.x.round() as i32;
+            let start_gy = proj.start_position.y.round() as i32;
+            let start_tile_y = self.map.get_tile(start_gx, start_gy).map(|t| t.grid_y).unwrap_or(0);
+            
+            let start_world_x = (proj.start_position.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
+            let start_world_z = (proj.start_position.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
+            let start_world_y = (start_tile_y as f32 + 0.5 + proj.spawn_height_offset) * TILE_WORLD_SIZE;
+            let muzzle_pos = glam::Vec3::new(start_world_x, start_world_y, start_world_z);
+
+            let diff = proj.target_position - proj.start_position;
+            let direction = if diff.length_squared() > 0.0001 { diff.normalize() } else { glam::Vec2::new(1.0, 0.0) };
+            self.particles.spawn_muzzle_flash(muzzle_pos, direction);
+        }
+        
         self.projectiles.extend(new_projectiles);
 
         // Update active projectiles
         let mut to_remove = Vec::new();
         for (i, proj) in self.projectiles.iter_mut().enumerate() {
-            if proj.update(dt) {
+            let reached = proj.update(dt);
+            
+            // Calculate current 3D position
+            let pos = proj.position;
+            let world_x = (pos.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
+            let world_z = (pos.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
+            
+            let start_gx = proj.start_position.x.round() as i32;
+            let start_gy = proj.start_position.y.round() as i32;
+            let start_tile_y = self.map.get_tile(start_gx, start_gy).map(|t| t.grid_y).unwrap_or(0);
+            
+            let target_gx = proj.target_position.x.round() as i32;
+            let target_gy = proj.target_position.y.round() as i32;
+            let target_tile_y = self.map.get_tile(target_gx, target_gy).map(|t| t.grid_y).unwrap_or(0);
+
+            let start_world_y = (start_tile_y as f32 + 0.5 + proj.spawn_height_offset) * TILE_WORLD_SIZE;
+            let target_world_y = (target_tile_y as f32 + 0.5) * TILE_WORLD_SIZE + 0.2 * TILE_WORLD_SIZE;
+            
+            let total_dist = proj.start_position.distance(proj.target_position);
+            let current_dist = proj.position.distance(proj.target_position);
+            let t_val = if total_dist > 0.0 { 1.0 - (current_dist / total_dist) } else { 1.0 };
+            
+            let world_y = start_world_y * (1.0 - t_val) + target_world_y * t_val;
+            let proj_pos_3d = glam::Vec3::new(world_x, world_y, world_z);
+
+            if reached {
                 to_remove.push(i);
                 
+                // Spawn impact burst
+                self.particles.spawn_impact_burst(proj_pos_3d);
+
                 // Damage enemies near the target position
                 for enemy in &mut self.enemy_manager.enemies {
                     let dist = enemy.get_position().distance(proj.target_position);
@@ -559,6 +611,14 @@ impl State {
                         enemy.take_damage(proj.damage);
                     }
                 }
+            } else {
+                // Spawn trail particle
+                let trail_color = if proj.speed >= 20.0 {
+                    [0.2, 0.8, 1.0, 0.8] // Cyan/blue trail for sniper
+                } else {
+                    [1.0, 0.7, 0.1, 0.7] // Orange/yellow trail for basic
+                };
+                self.particles.spawn_projectile_trail(proj_pos_3d, trail_color);
             }
         }
 
@@ -573,6 +633,9 @@ impl State {
             popup.lifetime -= dt;
         }
         self.popups.retain(|p| p.lifetime > 0.0);
+
+        // Update particles
+        self.particles.update(dt);
     }
 
     /// Per-frame render preparation: upload the camera matrix, resolve the
@@ -839,6 +902,9 @@ impl State {
                 crate::renderer::sprite::SpriteAlignment::Billboard,
             );
         }
+
+        // Draw particles
+        self.particles.draw(&mut self.batcher, self.highlight_texture_id);
 
         // --- Wave/Game Status UI ---
         let (line1, line2, color1, color2) = match self.game_state {
