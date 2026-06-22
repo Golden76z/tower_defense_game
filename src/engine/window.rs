@@ -1595,12 +1595,34 @@ impl State {
 
                                 ui.add_space(12.0);
 
-                                // Volume Control Slider
+                                // SFX Volume Control Slider
                                 ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new("🔊 Volume:").color(egui::Color32::WHITE).font(egui::FontId::proportional(16.0)));
-                                    let mut current_vol = self.audio.get_volume();
-                                    if ui.add(egui::Slider::new(&mut current_vol, 0.0..=1.0)).changed() {
-                                        self.audio.set_volume(current_vol);
+                                    ui.label(egui::RichText::new("🔊 SFX Vol:").color(egui::Color32::WHITE).font(egui::FontId::proportional(16.0)));
+                                    let mut sfx_vol = self.audio.get_volume();
+                                    if ui.add(egui::Slider::new(&mut sfx_vol, 0.0..=1.0)).changed() {
+                                        self.audio.set_volume(sfx_vol);
+                                    }
+                                });
+
+                                ui.add_space(8.0);
+
+                                // Music Volume Control Slider
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new("🎵 Music Vol:").color(egui::Color32::WHITE).font(egui::FontId::proportional(16.0)));
+                                    let mut music_vol = self.audio.get_music_volume();
+                                    if ui.add(egui::Slider::new(&mut music_vol, 0.0..=1.0)).changed() {
+                                        self.audio.set_music_volume(music_vol);
+                                    }
+                                });
+
+                                ui.add_space(8.0);
+
+                                // Music Mute Toggle Checkbox
+                                ui.horizontal(|ui| {
+                                    let mut music_muted = self.audio.get_music_muted();
+                                    if ui.checkbox(&mut music_muted, egui::RichText::new("Mute Music").color(egui::Color32::WHITE).font(egui::FontId::proportional(16.0))).changed() {
+                                        self.audio.set_music_muted(music_muted);
+                                        self.audio.play_click();
                                     }
                                 });
 

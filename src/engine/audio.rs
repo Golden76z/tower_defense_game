@@ -7,10 +7,14 @@ pub struct AudioSystem {
     _stream: Option<OutputStream>,
     stream_handle: Option<OutputStreamHandle>,
     volume: f32,
+    music_volume: f32,
+    music_muted: bool,
+    music_sink: Option<rodio::Sink>,
     shoot_data: Option<Vec<u8>>,
     explosion_data: Option<Vec<u8>>,
     place_data: Option<Vec<u8>>,
     click_data: Option<Vec<u8>>,
+    _music_data: Option<Vec<u8>>,
 }
 
 impl AudioSystem {
@@ -30,6 +34,7 @@ impl AudioSystem {
         let explosion_data = Self::load_or_generate(sounds_dir.join("explosion.wav"), SoundPreset::Explosion);
         let place_data = Self::load_or_generate(sounds_dir.join("place.wav"), SoundPreset::Place);
         let click_data = Self::load_or_generate(sounds_dir.join("click.wav"), SoundPreset::Click);
+        let music_data = Self::load_or_generate(sounds_dir.join("music.wav"), SoundPreset::Music);
 
         // Try initializing audio device
         let (stream, stream_handle) = match OutputStream::try_default() {
@@ -43,14 +48,44 @@ impl AudioSystem {
             }
         };
 
+        let mut music_sink = None;
+        if let Some(ref handle) = stream_handle {
+            if let Some(ref m_data) = music_data {
+                match rodio::Sink::try_new(handle) {
+                    Ok(sink) => {
+                        let cursor = Cursor::new(m_data.clone());
+                        match Decoder::new(cursor) {
+                            Ok(source) => {
+                                sink.append(source.repeat_infinite().convert_samples::<f32>());
+                                sink.set_volume(0.3); // Default music volume at 30%
+                                sink.play();
+                                music_sink = Some(sink);
+                                log::info!("Background music playback started.");
+                            }
+                            Err(e) => {
+                                log::error!("Failed to decode music: {:?}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to create music sink: {:?}", e);
+                    }
+                }
+            }
+        }
+
         Self {
             _stream: stream,
             stream_handle,
             volume: 0.5, // Default volume at 50%
+            music_volume: 0.3,
+            music_muted: false,
+            music_sink,
             shoot_data,
             explosion_data,
             place_data,
             click_data,
+            _music_data: music_data,
         }
     }
 
@@ -105,6 +140,35 @@ impl AudioSystem {
         self.volume
     }
 
+    pub fn set_music_volume(&mut self, volume: f32) {
+        self.music_volume = volume.clamp(0.0, 1.0);
+        self.update_music_volume();
+    }
+
+    pub fn get_music_volume(&self) -> f32 {
+        self.music_volume
+    }
+
+    pub fn set_music_muted(&mut self, muted: bool) {
+        self.music_muted = muted;
+        self.update_music_volume();
+    }
+
+    pub fn get_music_muted(&self) -> bool {
+        self.music_muted
+    }
+
+    fn update_music_volume(&self) {
+        if let Some(sink) = &self.music_sink {
+            let volume = if self.music_muted {
+                0.0
+            } else {
+                self.music_volume
+            };
+            sink.set_volume(volume);
+        }
+    }
+
     /// Loads the sound from disk if present, or generates it programmatically.
     fn load_or_generate(path: PathBuf, preset: SoundPreset) -> Option<Vec<u8>> {
         if path.exists() {
@@ -135,6 +199,7 @@ enum SoundPreset {
     Explosion,
     Place,
     Click,
+    Music,
 }
 
 impl SoundPreset {
@@ -220,6 +285,60 @@ impl SoundPreset {
                 }
                 samples
             }
+            SoundPreset::Music => {
+                let duration = 8.0; // 8 seconds
+                let num_samples = (sample_rate as f32 * duration) as usize;
+                let mut samples = Vec::with_capacity(num_samples);
+                
+                let melody_freqs = [
+                    261.63, 329.63, 392.00, 523.25, // C4, E4, G4, C5
+                    220.00, 261.63, 329.63, 440.00, // A3, C4, E4, A4
+                    174.61, 220.00, 261.63, 349.23, // F3, A3, C4, F4
+                    196.00, 246.94, 293.66, 392.00  // G3, B3, D4, G4
+                ];
+                let bass_freqs = [
+                    65.41,  // C2
+                    55.00,  // A1
+                    43.65,  // F1
+                    49.00   // G1
+                ];
+                
+                let mut melody_phase = 0.0f32;
+                let mut bass_phase = 0.0f32;
+                
+                for i in 0..num_samples {
+                    let t = i as f32 / sample_rate as f32;
+                    let beat = (t / 0.5) as usize % 16;
+                    let t_beat = t % 0.5;
+                    
+                    let m_freq = melody_freqs[beat];
+                    melody_phase += 2.0 * std::f32::consts::PI * m_freq / sample_rate as f32;
+                    
+                    let b_freq = bass_freqs[beat / 4];
+                    bass_phase += 2.0 * std::f32::consts::PI * b_freq / sample_rate as f32;
+                    
+                    // Pluck envelope for melody: starts fast, decays exponentially
+                    let melody_amp = (-12.0 * t_beat).exp();
+                    
+                    // Simple sine melody
+                    let melody_val = melody_phase.sin() * melody_amp;
+                    
+                    // Bass note (triangle wave or soft sine, held for 4 beats)
+                    // Let's use a soft sine wave with a slower attack/decay
+                    let t_chord = t % 2.0;
+                    let bass_amp = if t_chord < 0.2 {
+                        t_chord / 0.2
+                    } else {
+                        ((2.0 - t_chord) / 1.8).clamp(0.0, 1.0)
+                    };
+                    let bass_val = bass_phase.sin() * bass_amp * 0.7;
+                    
+                    // Mix them
+                    let mixed = (melody_val * 0.4 + bass_val * 0.6) * 10000.0;
+                    samples.push(mixed as i16);
+                }
+                samples
+            }
         };
 
         generate_wav_bytes(&samples, sample_rate)
@@ -270,13 +389,31 @@ mod tests {
     }
 
     #[test]
+    fn test_music_generation() {
+        let preset = SoundPreset::Music;
+        let bytes = preset.generate();
+        assert!(bytes.len() > 44);
+        assert_eq!(&bytes[0..4], b"RIFF");
+        assert_eq!(&bytes[8..12], b"WAVE");
+    }
+
+    #[test]
     fn test_audio_system_initialization() {
         // AudioSystem should initialize cleanly without panic even in headless test environments.
-        let sys = AudioSystem::new();
+        let mut sys = AudioSystem::new();
         assert_eq!(sys.volume, 0.5);
+        assert_eq!(sys.music_volume, 0.3);
+        assert_eq!(sys.music_muted, false);
         assert!(sys.shoot_data.is_some());
         assert!(sys.explosion_data.is_some());
         assert!(sys.place_data.is_some());
         assert!(sys.click_data.is_some());
+        assert!(sys._music_data.is_some());
+
+        sys.set_music_volume(0.8);
+        assert_eq!(sys.get_music_volume(), 0.8);
+
+        sys.set_music_muted(true);
+        assert!(sys.get_music_muted());
     }
 }
