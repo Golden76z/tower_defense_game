@@ -96,6 +96,8 @@ pub struct State {
     egui_renderer: egui_wgpu::Renderer,
     /// Index of the selected tower for upgrades.
     pub selected_tower_index: Option<usize>,
+    /// Sound effects system.
+    pub audio: crate::engine::audio::AudioSystem,
 }
 
 impl State {
@@ -297,6 +299,8 @@ impl State {
             },
         );
 
+        let audio = crate::engine::audio::AudioSystem::new();
+
         let state = Self {
             surface,
             device,
@@ -352,6 +356,7 @@ impl State {
             egui_state,
             egui_renderer,
             selected_tower_index: None,
+            audio,
         };
 
         state.update_window_title();
@@ -529,6 +534,7 @@ impl State {
         for (pos, reward) in killed {
             self.economy.add_money(reward as i32);
             self.update_window_title();
+            self.audio.play_explosion();
             
             // Calculate 3D position for the popup
             let world_x = (pos.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
@@ -554,6 +560,7 @@ impl State {
         
         // Spawn muzzle flash for each new projectile
         for proj in &new_projectiles {
+            self.audio.play_shoot();
             let start_gx = proj.start_position.x.round() as i32;
             let start_gy = proj.start_position.y.round() as i32;
             let start_tile_y = self.map.get_tile(start_gx, start_gy).map(|t| t.grid_y).unwrap_or(0);
@@ -1342,6 +1349,7 @@ impl State {
                                     
                                     if ui.add(basic_btn).on_hover_text("Range: 4.0 | DPS: 30.0\nStandard general-purpose defensive tower.").clicked() {
                                         self.selected_tower_type = crate::game::towers::manager::TowerType::Basic;
+                                        self.audio.play_click();
                                         log::info!("Selected Basic Tower for placement");
                                     }
                                     
@@ -1376,6 +1384,7 @@ impl State {
                                     
                                     if ui.add(sniper_btn).on_hover_text("Range: 12.0 | Damage: 100.0\nSlow firing rate, but deals heavy damage over long distances.").clicked() {
                                         self.selected_tower_type = crate::game::towers::manager::TowerType::Sniper;
+                                        self.audio.play_click();
                                         log::info!("Selected Sniper Tower for placement");
                                     }
                                 });
@@ -1486,6 +1495,7 @@ impl State {
                                                 response.on_hover_text("Insufficient gold!");
                                             } else if response.clicked() {
                                                 upgrade_triggered = true;
+                                                self.audio.play_click();
                                             }
                                         } else {
                                             ui.label(
@@ -1509,6 +1519,7 @@ impl State {
                                         
                                         if ui.add_sized([220.0, 28.0], close_btn).clicked() {
                                             close_triggered = true;
+                                            self.audio.play_click();
                                         }
                                     });
                                 });
@@ -1582,7 +1593,18 @@ impl State {
                                     .color(egui::Color32::LIGHT_GRAY)
                                 );
 
-                                ui.add_space(20.0);
+                                ui.add_space(12.0);
+
+                                // Volume Control Slider
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new("🔊 Volume:").color(egui::Color32::WHITE).font(egui::FontId::proportional(16.0)));
+                                    let mut current_vol = self.audio.get_volume();
+                                    if ui.add(egui::Slider::new(&mut current_vol, 0.0..=1.0)).changed() {
+                                        self.audio.set_volume(current_vol);
+                                    }
+                                });
+
+                                ui.add_space(16.0);
 
                                 let btn_width = 180.0;
                                 let btn_height = 36.0;
@@ -1599,6 +1621,7 @@ impl State {
 
                                 if ui.add_sized([btn_width, btn_height], resume_btn).clicked() {
                                     self.game_state = crate::game::game_state::GameState::Playing;
+                                    self.audio.play_click();
                                     log::info!("Resumed game via Pause Menu button");
                                 }
 
@@ -1616,6 +1639,7 @@ impl State {
 
                                 if ui.add_sized([btn_width, btn_height], restart_btn).clicked() {
                                     self.start_game();
+                                    self.audio.play_click();
                                     log::info!("Restarted game via Pause Menu button");
                                 }
 
@@ -1633,6 +1657,7 @@ impl State {
 
                                 if ui.add_sized([btn_width, btn_height], quit_btn).clicked() {
                                     self.exit_requested = true;
+                                    self.audio.play_click();
                                     log::info!("Quit requested via Pause Menu button");
                                 }
                             });
@@ -1755,6 +1780,7 @@ impl State {
                             let tower_type = self.selected_tower_type;
                             match self.tower_manager.place_tower(&self.map, pos, tower_type, &mut self.economy) {
                                 Ok(_) => {
+                                    self.audio.play_place();
                                     log::info!("Placed {:?} tower at {}, {}", tower_type, gx, gz);
                                     self.placement_status = format!("Placed {:?} tower at ({}, {})", tower_type, gx, gz);
                                     self.update_window_title();

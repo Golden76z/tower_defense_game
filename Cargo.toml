@@ -42,7 +42,8 @@ egui-wgpu = "0.33"
 egui-winit = "0.33"
 
 # Audio (add when needed in Phase 5)
-# rodio = "0.19"
+rodio = "0.19"
+
 
 [dev-dependencies]
 # Testing utilities
