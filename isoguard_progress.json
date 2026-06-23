@@ -1,0 +1,17 @@
+{
+  "easy": {
+    "unlocked": true,
+    "high_score": 215,
+    "completed": true
+  },
+  "medium": {
+    "unlocked": true,
+    "high_score": 525,
+    "completed": true
+  },
+  "hard": {
+    "unlocked": true,
+    "high_score": 0,
+    "completed": false
+  }
+}

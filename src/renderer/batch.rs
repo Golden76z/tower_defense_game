@@ -58,6 +58,15 @@ pub enum BatchItem {
         color: [f32; 4],
         texture_id: usize,
     },
+    /// A flat, upward-facing circle lying on the X-Z plane at `position.y`, drawn
+    /// with an arbitrary (possibly translucent) `color`. Useful for ground decals
+    /// (e.g. tower range indicators).
+    OverlayCircle {
+        position: glam::Vec3,
+        radius: f32,
+        color: [f32; 4],
+        texture_id: usize,
+    },
     /// A single cube face drawn with an arbitrary (possibly translucent)
     /// `color` instead of fixed directional shading. Used to build the 3D
     /// block-highlight shell.
@@ -83,6 +92,7 @@ impl BatchItem {
             BatchItem::CubeTop { texture_id, .. } => *texture_id,
             BatchItem::CubeFace { texture_id, .. } => *texture_id,
             BatchItem::OverlayQuad { texture_id, .. } => *texture_id,
+            BatchItem::OverlayCircle { texture_id, .. } => *texture_id,
             BatchItem::ColorFace { texture_id, .. } => *texture_id,
             BatchItem::Model { texture_id, .. } => *texture_id,
         }
@@ -249,6 +259,69 @@ impl BatchItem {
                 vertices.push(Vertex { position: [x + hx, y, z + hz], tex_coords: [1.0, 1.0], color: c });
                 vertices.push(Vertex { position: [x + hx, y, z - hz], tex_coords: [1.0, 0.0], color: c });
             }
+            BatchItem::OverlayCircle { position, radius, color, .. } => {
+                let x = position.x;
+                let y = position.y;
+                let z = position.z;
+                let r = *radius;
+                let c = *color;
+
+                let segments = 64;
+                for i in 0..segments {
+                    let theta1 = (i as f32) * 2.0 * std::f32::consts::PI / (segments as f32);
+                    let theta2 = ((i + 1) as f32) * 2.0 * std::f32::consts::PI / (segments as f32);
+
+                    let cos1 = theta1.cos();
+                    let sin1 = theta1.sin();
+                    let cos2 = theta2.cos();
+                    let sin2 = theta2.sin();
+
+                    let p1_x = x + r * cos1;
+                    let p1_z = z + r * sin1;
+                    let p2_x = x + r * cos2;
+                    let p2_z = z + r * sin2;
+
+                    // Filled circle (transparent white color `c`)
+                    vertices.push(Vertex { position: [x, y, z], tex_coords: [0.5, 0.5], color: c });
+                    vertices.push(Vertex { position: [p1_x, y, p1_z], tex_coords: [0.5 + 0.5 * cos1, 0.5 + 0.5 * sin1], color: c });
+                    vertices.push(Vertex { position: [p2_x, y, p2_z], tex_coords: [0.5 + 0.5 * cos2, 0.5 + 0.5 * sin2], color: c });
+                }
+
+                // Draw an outer ring/border for extra visual pop
+                let ring_thickness = 0.006;
+                let r_inner = r - ring_thickness;
+                let border_color = [c[0], c[1], c[2], (c[3] * 8.0).min(0.8)];
+
+                for i in 0..segments {
+                    let theta1 = (i as f32) * 2.0 * std::f32::consts::PI / (segments as f32);
+                    let theta2 = ((i + 1) as f32) * 2.0 * std::f32::consts::PI / (segments as f32);
+
+                    let cos1 = theta1.cos();
+                    let sin1 = theta1.sin();
+                    let cos2 = theta2.cos();
+                    let sin2 = theta2.sin();
+
+                    let p1_outer_x = x + r * cos1;
+                    let p1_outer_z = z + r * sin1;
+                    let p2_outer_x = x + r * cos2;
+                    let p2_outer_z = z + r * sin2;
+
+                    let p1_inner_x = x + r_inner * cos1;
+                    let p1_inner_z = z + r_inner * sin1;
+                    let p2_inner_x = x + r_inner * cos2;
+                    let p2_inner_z = z + r_inner * sin2;
+
+                    // Triangle 1: p1_inner -> p1_outer -> p2_outer
+                    vertices.push(Vertex { position: [p1_inner_x, y, p1_inner_z], tex_coords: [0.0, 0.0], color: border_color });
+                    vertices.push(Vertex { position: [p1_outer_x, y, p1_outer_z], tex_coords: [1.0, 0.0], color: border_color });
+                    vertices.push(Vertex { position: [p2_outer_x, y, p2_outer_z], tex_coords: [1.0, 1.0], color: border_color });
+
+                    // Triangle 2: p1_inner -> p2_outer -> p2_inner
+                    vertices.push(Vertex { position: [p1_inner_x, y, p1_inner_z], tex_coords: [0.0, 0.0], color: border_color });
+                    vertices.push(Vertex { position: [p2_outer_x, y, p2_outer_z], tex_coords: [1.0, 1.0], color: border_color });
+                    vertices.push(Vertex { position: [p2_inner_x, y, p2_inner_z], tex_coords: [0.0, 1.0], color: border_color });
+                }
+            }
             BatchItem::ColorFace { position, size, face, color, .. } => {
                 push_color_face(vertices, *face, *position, *size, *color);
             }
@@ -377,6 +450,12 @@ impl SpriteBatcher {
     /// given (possibly translucent) `color`. Useful for ground decals.
     pub fn add_overlay_quad(&mut self, position: glam::Vec3, size: glam::Vec3, color: [f32; 4], texture_id: usize) {
         self.items.push(BatchItem::OverlayQuad { position, size, color, texture_id });
+    }
+
+    /// Adds a flat, upward-facing overlay circle at `position.y` drawn with the
+    /// given (possibly translucent) `color`. Useful for range indicators.
+    pub fn add_overlay_circle(&mut self, position: glam::Vec3, radius: f32, color: [f32; 4], texture_id: usize) {
+        self.items.push(BatchItem::OverlayCircle { position, radius, color, texture_id });
     }
 
     /// Adds a single cube face tinted with an arbitrary `color`.
@@ -724,5 +803,21 @@ mod tests {
         assert_eq!(batches.len(), 1, "same texture_id should merge into one batch");
         assert_eq!(batches[0].texture_id, 4);
         assert_eq!(batches[0].vertex_count, 12);
+    }
+
+    #[test]
+    fn test_add_overlay_circle() {
+        let mut batcher = SpriteBatcher::new();
+        let color = [1.0, 1.0, 1.0, 0.05];
+        batcher.add_overlay_circle(glam::Vec3::new(1.0, 2.0, 3.0), 5.0, color, 7);
+        batcher.compile_batches();
+
+        let batches = batcher.batches();
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].texture_id, 7);
+        // Filled circle: 64 segments * 3 vertices = 192 vertices.
+        // Outer ring: 64 segments * 6 vertices = 384 vertices.
+        // Total: 192 + 384 = 576 vertices.
+        assert_eq!(batches[0].vertex_count, 576);
     }
 }
