@@ -98,6 +98,14 @@ pub struct State {
     pub selected_tower_index: Option<usize>,
     /// Sound effects system.
     pub audio: crate::engine::audio::AudioSystem,
+    /// Whether the options menu is currently displayed on the main menu.
+    pub show_options_menu: bool,
+    /// Whether the level selection screen is active.
+    pub show_level_select: bool,
+    /// The name of the currently active map.
+    pub current_map_name: String,
+    /// Counter of spawned enemies for path alternation.
+    pub enemy_spawn_count: usize,
 }
 
 impl State {
@@ -357,6 +365,10 @@ impl State {
             egui_renderer,
             selected_tower_index: None,
             audio,
+            show_options_menu: false,
+            show_level_select: false,
+            current_map_name: "procedural".to_string(),
+            enemy_spawn_count: 0,
         };
 
         state.update_window_title();
@@ -381,6 +393,37 @@ impl State {
 
         self.continued_after_victory = false;
         self.game_state = crate::game::game_state::GameState::Playing;
+    }
+
+    pub fn load_level(&mut self, name: &str) {
+        let map = match name {
+            "easy" => crate::game::map::load_map_from_file("assets/maps/easy.json"),
+            "medium" => crate::game::map::load_map_from_file("assets/maps/medium.json"),
+            "hard" => crate::game::map::load_map_from_file("assets/maps/hard.json"),
+            "procedural" => Ok(crate::game::map::Map::generate_island(20, 20, 1337)),
+            _ => crate::game::map::load_map_from_file("assets/maps/test_map.json"),
+        };
+
+        let map = match map {
+            Ok(map) => {
+                log::info!("Loaded map {} ({}x{})", name, map.width, map.height);
+                map
+            }
+            Err(e) => {
+                log::warn!("Failed to load map {}: {e}. Falling back to procedural island.", name);
+                crate::game::map::Map::generate_island(20, 20, 1337)
+            }
+        };
+
+        self.map = map;
+        self.current_map_name = name.to_string();
+        self.enemy_spawn_count = 0;
+
+        // Reset terrain mesh
+        self.rebuild_terrain();
+
+        // Reset game state
+        self.start_game();
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -466,6 +509,18 @@ impl State {
     /// so simulation behaves identically regardless of frame rate. Future game
     /// logic (enemies, projectiles, towers, economy) steps here.
     fn fixed_update(&mut self, dt: f32) {
+        if self.game_state == crate::game::game_state::GameState::MainMenu {
+            self.time_elapsed += dt;
+            let angle = self.time_elapsed * 0.15; // Slow cinematic rotation
+            let radius = 0.6; // Circular pan radius over procedural island
+            self.camera.target = glam::Vec3::new(
+                angle.cos() * radius,
+                0.0,
+                angle.sin() * radius,
+            );
+            return;
+        }
+
         // Camera movement should work even in menus/paused states so the player can navigate.
         self.camera_controller.update_camera(&mut self.camera, dt);
 
@@ -484,6 +539,29 @@ impl State {
             self.game_state = crate::game::game_state::GameState::Victory;
             self.placement_status = "VICTORY!".to_string();
             self.update_window_title();
+
+            // Calculate and save high score/progress
+            let score = (self.player_stats.lives.max(0) as u32 * 100) + self.economy.money.max(0) as u32;
+            let mut save = crate::game::progress::SaveData::load();
+            match self.current_map_name.as_str() {
+                "easy" => {
+                    save.easy.completed = true;
+                    save.easy.high_score = save.easy.high_score.max(score);
+                    save.medium.unlocked = true;
+                }
+                "medium" => {
+                    save.medium.completed = true;
+                    save.medium.high_score = save.medium.high_score.max(score);
+                    save.hard.unlocked = true;
+                }
+                "hard" => {
+                    save.hard.completed = true;
+                    save.hard.high_score = save.hard.high_score.max(score);
+                }
+                _ => {}
+            }
+            save.save();
+
             return;
         }
 
@@ -495,16 +573,22 @@ impl State {
         let prev_timer = self.wave_manager.inter_wave_timer;
 
         if let Some(enemy_type) = self.wave_manager.update(dt, active_enemy_count) {
+            let path_idx = self.enemy_spawn_count % self.map.paths.len().max(1);
+            self.enemy_spawn_count += 1;
+            let path = self.map.paths.get(path_idx).unwrap_or(&self.map.path);
+
             match enemy_type {
                 crate::game::wave_manager::EnemyType::Basic => {
-                    if let Some(start_pos) = self.map.path.start() {
-                        let enemy = crate::game::enemies::basic_enemy::BasicEnemy::new(start_pos);
+                    if let Some(start_pos) = path.start() {
+                        let enemy = crate::game::enemies::basic_enemy::BasicEnemy::new(start_pos)
+                            .with_path(path.clone());
                         self.enemy_manager.spawn_enemy(Box::new(enemy));
                     }
                 }
                 crate::game::wave_manager::EnemyType::Fast => {
-                    if let Some(start_pos) = self.map.path.start() {
-                        let enemy = crate::game::enemies::fast_enemy::FastEnemy::new(start_pos);
+                    if let Some(start_pos) = path.start() {
+                        let enemy = crate::game::enemies::fast_enemy::FastEnemy::new(start_pos)
+                            .with_path(path.clone());
                         self.enemy_manager.spawn_enemy(Box::new(enemy));
                     }
                 }
@@ -818,39 +902,78 @@ impl State {
             );
             self.batcher.add_model(vertices, self.highlight_texture_id);
 
-            // Draw health bar
+            // Draw health bar if damaged and alive
             let max_health = enemy.get_max_health();
             let health_pct = (health / max_health).clamp(0.0, 1.0);
             
-            let bar_width = 0.08;
-            let bar_height = 0.01;
-            let bar_y = world_y + scale + 0.01; // Dynamic height above the enemy
-            
-            // Red background (missing health)
-            self.batcher.add_sprite(
-                crate::renderer::sprite::Sprite::new_colored(
-                    glam::Vec3::new(world_x, bar_y, world_z),
-                    glam::Vec2::new(bar_width, bar_height),
-                    self.highlight_texture_id,
-                    0.0,
-                    [1.0, 0.0, 0.0, 1.0], // Red
-                ),
-                crate::renderer::sprite::SpriteAlignment::Billboard,
-            );
-            
-            // Green foreground (current health)
-            let current_bar_width = bar_width * health_pct;
-            let offset_x = (bar_width - current_bar_width) / 2.0; // Left-align the green bar
-            self.batcher.add_sprite(
-                crate::renderer::sprite::Sprite::new_colored(
-                    glam::Vec3::new(world_x - offset_x, bar_y + 0.001, world_z),
-                    glam::Vec2::new(current_bar_width, bar_height),
-                    self.highlight_texture_id,
-                    0.0,
-                    [0.0, 1.0, 0.0, 1.0], // Green
-                ),
-                crate::renderer::sprite::SpriteAlignment::Billboard,
-            );
+            if health_pct < 1.0 && health > 0.0 {
+                // Scale bar dimensions dynamically with camera zoom to keep it readable when zoomed out
+                let scale_factor = (1.0 / self.camera.zoom).sqrt().clamp(1.0, 2.5);
+                let bar_width = 0.08 * scale_factor;
+                let bar_height = 0.01 * scale_factor;
+                let border_width = bar_width + 0.006 * scale_factor;
+                let border_height = bar_height + 0.004 * scale_factor;
+                let bar_y = world_y + scale + 0.01 * scale_factor; // Dynamic height above the enemy
+
+                let center_pos = glam::Vec3::new(world_x, bar_y, world_z);
+                let right = glam::Vec3::new(1.0, 0.0, -1.0).normalize();
+                let towards_camera = glam::Vec3::new(1.0, 1.0, 1.0).normalize();
+
+                // 1. Black border
+                self.batcher.add_sprite(
+                    crate::renderer::sprite::Sprite::new_colored(
+                        center_pos,
+                        glam::Vec2::new(border_width, border_height),
+                        self.highlight_texture_id,
+                        0.0,
+                        [0.0, 0.0, 0.0, 1.0], // Black outline
+                    ),
+                    crate::renderer::sprite::SpriteAlignment::Billboard,
+                );
+
+                // 2. Dark crimson background (missing health)
+                let bg_pos = center_pos + towards_camera * 0.001;
+                self.batcher.add_sprite(
+                    crate::renderer::sprite::Sprite::new_colored(
+                        bg_pos,
+                        glam::Vec2::new(bar_width, bar_height),
+                        self.highlight_texture_id,
+                        0.0,
+                        [0.3, 0.05, 0.05, 1.0], // Dark crimson
+                    ),
+                    crate::renderer::sprite::SpriteAlignment::Billboard,
+                );
+
+                // 3. Current health foreground
+                let current_bar_width = bar_width * health_pct;
+                let offset = right * (bar_width - current_bar_width) / 2.0;
+                let fg_pos = center_pos + towards_camera * 0.002 - offset;
+
+                // Color interpolation: green (100% health) -> yellow (50% health) -> red (0% health)
+                let r = if health_pct > 0.5 {
+                    2.0 * (1.0 - health_pct)
+                } else {
+                    1.0
+                };
+                let g = if health_pct > 0.5 {
+                    1.0
+                } else {
+                    2.0 * health_pct
+                };
+                let b = 0.0;
+                let foreground_color = [r, g, b, 1.0];
+
+                self.batcher.add_sprite(
+                    crate::renderer::sprite::Sprite::new_colored(
+                        fg_pos,
+                        glam::Vec2::new(current_bar_width, bar_height),
+                        self.highlight_texture_id,
+                        0.0,
+                        foreground_color,
+                    ),
+                    crate::renderer::sprite::SpriteAlignment::Billboard,
+                );
+            }
         }
 
         // Draw projectiles
@@ -1017,6 +1140,7 @@ impl State {
         // Draw Wave UI Billboard
         if self.game_state != crate::game::game_state::GameState::Playing
             && self.game_state != crate::game::game_state::GameState::Paused
+            && self.game_state != crate::game::game_state::GameState::MainMenu
         {
             let ortho_height = 2.0 / self.camera.zoom;
             let pixel_scale = ortho_height / self.config.height as f32;
@@ -1068,12 +1192,11 @@ impl State {
     /// dynamic batch. Markers are sampled along each segment so any path shape
     /// (including diagonals) is visualised.
     fn draw_path_debug(&mut self) {
-        // Snapshot the waypoints so the immutable borrow of `self.map` is
-        // released before mutably borrowing `self.batcher` below.
-        let waypoints: Vec<glam::Vec2> = self.map.path.waypoints().to_vec();
-        if waypoints.len() < 2 {
-            return;
-        }
+        let paths = if self.map.paths.is_empty() {
+            vec![self.map.path.clone()]
+        } else {
+            self.map.paths.clone()
+        };
 
         let mw = self.map.width as f32;
         let mh = self.map.height as f32;
@@ -1089,18 +1212,25 @@ impl State {
             )
         };
 
-        for pair in waypoints.windows(2) {
-            let (a, b) = (pair[0], pair[1]);
-            let steps = (a.distance(b) / 0.15).ceil().max(1.0) as i32;
-            for i in 0..=steps {
-                let p = a.lerp(b, i as f32 / steps as f32);
-                let (wx, wz) = to_world(p);
-                self.batcher.add_overlay_quad(
-                    glam::Vec3::new(wx, y, wz),
-                    size,
-                    PATH_DEBUG_COLOR,
-                    tex,
-                );
+        for path in paths {
+            let waypoints: Vec<glam::Vec2> = path.waypoints().to_vec();
+            if waypoints.len() < 2 {
+                continue;
+            }
+
+            for pair in waypoints.windows(2) {
+                let (a, b) = (pair[0], pair[1]);
+                let steps = (a.distance(b) / 0.15).ceil().max(1.0) as i32;
+                for i in 0..=steps {
+                    let p = a.lerp(b, i as f32 / steps as f32);
+                    let (wx, wz) = to_world(p);
+                    self.batcher.add_overlay_quad(
+                        glam::Vec3::new(wx, y, wz),
+                        size,
+                        PATH_DEBUG_COLOR,
+                        tex,
+                    );
+                }
             }
         }
     }
@@ -1687,6 +1817,415 @@ impl State {
                 });
         }
 
+        // Draw Main Menu if in GameState::MainMenu
+        if self.game_state == crate::game::game_state::GameState::MainMenu {
+            let egui_ctx = self.egui_ctx.clone();
+            
+            if self.show_level_select {
+                // Large modal for Level Selection
+                egui::Area::new(egui::Id::new("hud_level_select"))
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                    .show(&egui_ctx, |ui| {
+                        egui::Frame::NONE
+                            .fill(egui::Color32::from_black_alpha(220)) // Dark frosted glass
+                            .corner_radius(16.0)
+                            .stroke(egui::Stroke::new(2.5, egui::Color32::from_rgb(0, 230, 255))) // Cyan glow
+                            .inner_margin(24.0)
+                            .show(ui, |ui| {
+                                ui.set_width(860.0);
+                                ui.vertical_centered(|ui| {
+                                    ui.label(
+                                        egui::RichText::new("SELECT MISSION")
+                                            .font(egui::FontId::proportional(32.0))
+                                            .color(egui::Color32::from_rgb(0, 230, 255))
+                                            .strong()
+                                    );
+                                    ui.label(
+                                        egui::RichText::new("Select a combat zone to begin defense operations")
+                                            .font(egui::FontId::proportional(14.0))
+                                            .color(egui::Color32::LIGHT_GRAY)
+                                    );
+                                    ui.add_space(20.0);
+
+                                    let save = crate::game::progress::SaveData::load();
+
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing = egui::vec2(16.0, 0.0);
+
+                                        // --- EASY CARD ---
+                                        ui.vertical(|ui| {
+                                            egui::Frame::group(ui.style())
+                                                .fill(egui::Color32::from_rgb(25, 25, 25))
+                                                .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(102, 187, 106)))
+                                                .corner_radius(8.0)
+                                                .inner_margin(12.0)
+                                                .show(ui, |ui| {
+                                                    ui.set_width(190.0);
+                                                    ui.vertical_centered(|ui| {
+                                                        ui.label(egui::RichText::new("EASY").color(egui::Color32::from_rgb(102, 187, 106)).strong());
+                                                        ui.label(egui::RichText::new("Straight Path").color(egui::Color32::WHITE).font(egui::FontId::proportional(15.0)).strong());
+                                                        ui.add_space(8.0);
+
+                                                        // Mini-map preview
+                                                        let easy_grid = [
+                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                                                            [0, 2, 2, 0, 0, 0, 2, 2, 0, 0],
+                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                                                            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                                                            [0, 2, 2, 0, 0, 0, 2, 2, 0, 0],
+                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                                                        ];
+                                                        draw_minimap_preview(ui, &easy_grid);
+
+                                                        ui.add_space(8.0);
+                                                        ui.label(egui::RichText::new(format!("High Score: {}", save.easy.high_score)).color(egui::Color32::from_rgb(255, 215, 0)));
+                                                        if save.easy.completed {
+                                                            ui.label(egui::RichText::new("✓ Completed").color(egui::Color32::from_rgb(102, 187, 106)));
+                                                        } else {
+                                                            ui.label(egui::RichText::new("Uncompleted").color(egui::Color32::GRAY));
+                                                        }
+                                                        ui.add_space(12.0);
+
+                                                        let play_btn = egui::Button::new(egui::RichText::new("LAUNCH").strong())
+                                                            .fill(egui::Color32::from_rgb(46, 125, 50));
+                                                        if ui.add_sized([120.0, 30.0], play_btn).clicked() {
+                                                            self.load_level("easy");
+                                                            self.show_level_select = false;
+                                                            self.audio.play_click();
+                                                        }
+                                                    });
+                                                });
+                                        });
+
+                                        // --- MEDIUM CARD ---
+                                        ui.vertical(|ui| {
+                                            let unlocked = save.medium.unlocked;
+                                            let border_color = if unlocked { egui::Color32::from_rgb(255, 167, 38) } else { egui::Color32::from_rgb(60, 60, 60) };
+                                            egui::Frame::group(ui.style())
+                                                .fill(egui::Color32::from_rgb(25, 25, 25))
+                                                .stroke(egui::Stroke::new(1.5, border_color))
+                                                .corner_radius(8.0)
+                                                .inner_margin(12.0)
+                                                .show(ui, |ui| {
+                                                    ui.set_width(190.0);
+                                                    ui.vertical_centered(|ui| {
+                                                        ui.label(egui::RichText::new("MEDIUM").color(border_color).strong());
+                                                        ui.label(egui::RichText::new("Winding Path").color(if unlocked { egui::Color32::WHITE } else { egui::Color32::GRAY }).font(egui::FontId::proportional(15.0)).strong());
+                                                        ui.add_space(8.0);
+
+                                                        // Mini-map preview
+                                                        let medium_grid = [
+                                                            [0, 0, 0, 0, 2, 0, 0, 0, 0, 0],
+                                                            [1, 1, 1, 1, 1, 0, 0, 2, 0, 0],
+                                                            [0, 2, 0, 0, 1, 0, 0, 0, 0, 0],
+                                                            [0, 0, 0, 0, 1, 2, 0, 0, 0, 0],
+                                                            [2, 0, 0, 0, 1, 0, 0, 0, 2, 0],
+                                                            [0, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+                                                            [0, 1, 2, 0, 0, 0, 2, 0, 0, 0],
+                                                            [0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                                                            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                                            [0, 0, 0, 2, 0, 0, 0, 2, 0, 0]
+                                                        ];
+                                                        draw_minimap_preview(ui, &medium_grid);
+
+                                                        ui.add_space(8.0);
+                                                        if unlocked {
+                                                            ui.label(egui::RichText::new(format!("High Score: {}", save.medium.high_score)).color(egui::Color32::from_rgb(255, 215, 0)));
+                                                            if save.medium.completed {
+                                                                ui.label(egui::RichText::new("✓ Completed").color(egui::Color32::from_rgb(102, 187, 106)));
+                                                            } else {
+                                                                ui.label(egui::RichText::new("Uncompleted").color(egui::Color32::GRAY));
+                                                            }
+                                                            ui.add_space(12.0);
+
+                                                            let play_btn = egui::Button::new(egui::RichText::new("LAUNCH").strong())
+                                                                .fill(egui::Color32::from_rgb(230, 81, 0));
+                                                            if ui.add_sized([120.0, 30.0], play_btn).clicked() {
+                                                                self.load_level("medium");
+                                                                self.show_level_select = false;
+                                                                self.audio.play_click();
+                                                            }
+                                                        } else {
+                                                            ui.label(egui::RichText::new("LOCKED").color(egui::Color32::from_rgb(198, 40, 40)).strong());
+                                                            ui.label(egui::RichText::new("Complete Easy map").color(egui::Color32::GRAY));
+                                                            ui.add_space(12.0);
+                                                            ui.add_enabled_ui(false, |ui| {
+                                                                let _ = ui.add_sized([120.0, 30.0], egui::Button::new("LAUNCH"));
+                                                            });
+                                                        }
+                                                    });
+                                                });
+                                        });
+
+                                        // --- HARD CARD ---
+                                        ui.vertical(|ui| {
+                                            let unlocked = save.hard.unlocked;
+                                            let border_color = if unlocked { egui::Color32::from_rgb(239, 83, 80) } else { egui::Color32::from_rgb(60, 60, 60) };
+                                            egui::Frame::group(ui.style())
+                                                .fill(egui::Color32::from_rgb(25, 25, 25))
+                                                .stroke(egui::Stroke::new(1.5, border_color))
+                                                .corner_radius(8.0)
+                                                .inner_margin(12.0)
+                                                .show(ui, |ui| {
+                                                    ui.set_width(190.0);
+                                                    ui.vertical_centered(|ui| {
+                                                        ui.label(egui::RichText::new("HARD").color(border_color).strong());
+                                                        ui.label(egui::RichText::new("Multiple Paths").color(if unlocked { egui::Color32::WHITE } else { egui::Color32::GRAY }).font(egui::FontId::proportional(15.0)).strong());
+                                                        ui.add_space(8.0);
+
+                                                        // Mini-map preview
+                                                        let hard_grid = [
+                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                                                            [0, 0, 0, 2, 0, 2, 0, 0, 0, 0],
+                                                            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                                            [0, 0, 2, 0, 0, 0, 0, 2, 0, 0],
+                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                                                            [0, 0, 0, 0, 2, 0, 0, 0, 0, 0],
+                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                                                            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                                            [0, 0, 0, 2, 0, 2, 0, 0, 0, 0],
+                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 2]
+                                                        ];
+                                                        draw_minimap_preview(ui, &hard_grid);
+
+                                                        ui.add_space(8.0);
+                                                        if unlocked {
+                                                            ui.label(egui::RichText::new(format!("High Score: {}", save.hard.high_score)).color(egui::Color32::from_rgb(255, 215, 0)));
+                                                            if save.hard.completed {
+                                                                ui.label(egui::RichText::new("✓ Completed").color(egui::Color32::from_rgb(102, 187, 106)));
+                                                            } else {
+                                                                ui.label(egui::RichText::new("Uncompleted").color(egui::Color32::GRAY));
+                                                            }
+                                                            ui.add_space(12.0);
+
+                                                            let play_btn = egui::Button::new(egui::RichText::new("LAUNCH").strong())
+                                                                .fill(egui::Color32::from_rgb(198, 40, 40));
+                                                            if ui.add_sized([120.0, 30.0], play_btn).clicked() {
+                                                                self.load_level("hard");
+                                                                self.show_level_select = false;
+                                                                self.audio.play_click();
+                                                            }
+                                                        } else {
+                                                            ui.label(egui::RichText::new("LOCKED").color(egui::Color32::from_rgb(198, 40, 40)).strong());
+                                                            ui.label(egui::RichText::new("Complete Medium map").color(egui::Color32::GRAY));
+                                                            ui.add_space(12.0);
+                                                            ui.add_enabled_ui(false, |ui| {
+                                                                let _ = ui.add_sized([120.0, 30.0], egui::Button::new("LAUNCH"));
+                                                            });
+                                                        }
+                                                    });
+                                                });
+                                        });
+
+                                        // --- SANDBOX CARD ---
+                                        ui.vertical(|ui| {
+                                            egui::Frame::group(ui.style())
+                                                .fill(egui::Color32::from_rgb(25, 25, 25))
+                                                .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(33, 150, 243)))
+                                                .corner_radius(8.0)
+                                                .inner_margin(12.0)
+                                                .show(ui, |ui| {
+                                                    ui.set_width(190.0);
+                                                    ui.vertical_centered(|ui| {
+                                                        ui.label(egui::RichText::new("SANDBOX").color(egui::Color32::from_rgb(33, 150, 243)).strong());
+                                                        ui.label(egui::RichText::new("Procedural Map").color(egui::Color32::WHITE).font(egui::FontId::proportional(15.0)).strong());
+                                                        ui.add_space(8.0);
+
+                                                        // Mini-map preview (checkered grid to represent procedural generation)
+                                                        let sandbox_grid = [
+                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                                                            [0, 0, 0, 2, 2, 2, 0, 0, 0, 0],
+                                                            [0, 0, 2, 0, 0, 0, 2, 0, 0, 0],
+                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                                                            [0, 0, 2, 0, 0, 0, 2, 0, 0, 0],
+                                                            [0, 0, 0, 2, 2, 2, 0, 0, 0, 0],
+                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                                                        ];
+                                                        draw_minimap_preview(ui, &sandbox_grid);
+
+                                                        ui.add_space(8.0);
+                                                        ui.label(egui::RichText::new("Dynamic Seed").color(egui::Color32::from_rgb(33, 150, 243)));
+                                                        ui.label(egui::RichText::new("Infinite Play").color(egui::Color32::GRAY));
+                                                        ui.add_space(12.0);
+
+                                                        let play_btn = egui::Button::new(egui::RichText::new("LAUNCH").strong())
+                                                            .fill(egui::Color32::from_rgb(21, 101, 192));
+                                                        if ui.add_sized([120.0, 30.0], play_btn).clicked() {
+                                                            self.load_level("procedural");
+                                                            self.show_level_select = false;
+                                                            self.audio.play_click();
+                                                        }
+                                                    });
+                                                });
+                                        });
+                                    });
+
+                                    ui.add_space(20.0);
+
+                                    // Cancel/Back Button
+                                    let back_btn = egui::Button::new(egui::RichText::new("⬅ Back to Menu").strong())
+                                        .fill(egui::Color32::from_rgb(70, 70, 70));
+                                    if ui.add_sized([200.0, 32.0], back_btn).clicked() {
+                                        self.show_level_select = false;
+                                        self.audio.play_click();
+                                    }
+                                });
+                            });
+                    });
+            } else {
+                // Centered Main Menu modal
+                egui::Area::new(egui::Id::new("hud_main_menu"))
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                    .show(&egui_ctx, |ui| {
+                        egui::Frame::NONE
+                            .fill(egui::Color32::from_black_alpha(200)) // Deep dark frosted glass
+                            .corner_radius(16.0)
+                            .stroke(egui::Stroke::new(2.5, egui::Color32::from_rgb(0, 230, 255))) // Glowing cyan border
+                            .inner_margin(32.0)
+                            .show(ui, |ui| {
+                                ui.set_width(320.0);
+                                ui.vertical_centered(|ui| {
+                                    // Title with custom font size/color
+                                    ui.label(
+                                        egui::RichText::new("ISOGUARD")
+                                            .font(egui::FontId::proportional(48.0))
+                                            .color(egui::Color32::from_rgb(0, 230, 255))
+                                            .strong()
+                                    );
+                                    
+                                    ui.label(
+                                        egui::RichText::new("ISOMETRIC TOWER DEFENSE")
+                                            .font(egui::FontId::proportional(12.0))
+                                            .color(egui::Color32::from_rgb(255, 215, 0)) // Gold
+                                            .strong()
+                                    );
+                                    
+                                    ui.add_space(24.0);
+                                    
+                                    let btn_width = 240.0;
+                                    let btn_height = 40.0;
+
+                                    if !self.show_options_menu {
+                                        // 1. Play Button (Opens Level Select)
+                                        let play_btn = egui::Button::new(
+                                            egui::RichText::new("▶  Start Game")
+                                                .font(egui::FontId::proportional(18.0))
+                                                .color(egui::Color32::WHITE)
+                                                .strong()
+                                        )
+                                        .fill(egui::Color32::from_rgb(46, 125, 50)) // Emerald green
+                                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(102, 187, 106)));
+
+                                        if ui.add_sized([btn_width, btn_height], play_btn).clicked() {
+                                            self.show_level_select = true;
+                                            self.audio.play_click();
+                                        }
+
+                                        ui.add_space(16.0);
+
+                                        // 2. Options Button
+                                        let options_btn = egui::Button::new(
+                                            egui::RichText::new("⚙  Options")
+                                                .font(egui::FontId::proportional(18.0))
+                                                .color(egui::Color32::WHITE)
+                                                .strong()
+                                        )
+                                        .fill(egui::Color32::from_rgb(21, 101, 192)) // Royal blue
+                                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(100, 181, 246)));
+
+                                        if ui.add_sized([btn_width, btn_height], options_btn).clicked() {
+                                            self.show_options_menu = true;
+                                            self.audio.play_click();
+                                        }
+
+                                        ui.add_space(16.0);
+
+                                        // 3. Quit Button
+                                        let quit_btn = egui::Button::new(
+                                            egui::RichText::new("🚪  Quit Game")
+                                                .font(egui::FontId::proportional(18.0))
+                                                .color(egui::Color32::WHITE)
+                                                .strong()
+                                        )
+                                        .fill(egui::Color32::from_rgb(198, 40, 40)) // Crimson red
+                                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(239, 83, 80)));
+
+                                        if ui.add_sized([btn_width, btn_height], quit_btn).clicked() {
+                                            self.exit_requested = true;
+                                            self.audio.play_click();
+                                        }
+                                    } else {
+                                        // OPTIONS SUB-MENU
+                                        ui.label(
+                                            egui::RichText::new("SETTINGS")
+                                                .font(egui::FontId::proportional(20.0))
+                                                .color(egui::Color32::WHITE)
+                                                .strong()
+                                        );
+                                        
+                                        ui.add_space(16.0);
+
+                                        // SFX Volume Control Slider
+                                        ui.horizontal(|ui| {
+                                            ui.label(egui::RichText::new("🔊 SFX Vol:").color(egui::Color32::WHITE).font(egui::FontId::proportional(15.0)));
+                                            let mut sfx_vol = self.audio.get_volume();
+                                            if ui.add(egui::Slider::new(&mut sfx_vol, 0.0..=1.0)).changed() {
+                                                self.audio.set_volume(sfx_vol);
+                                            }
+                                        });
+
+                                        ui.add_space(12.0);
+
+                                        // Music Volume Control Slider
+                                        ui.horizontal(|ui| {
+                                            ui.label(egui::RichText::new("🎵 Music Vol:").color(egui::Color32::WHITE).font(egui::FontId::proportional(15.0)));
+                                            let mut music_vol = self.audio.get_music_volume();
+                                            if ui.add(egui::Slider::new(&mut music_vol, 0.0..=1.0)).changed() {
+                                                self.audio.set_music_volume(music_vol);
+                                            }
+                                        });
+
+                                        ui.add_space(12.0);
+
+                                        // Music Mute Toggle Checkbox
+                                        ui.horizontal(|ui| {
+                                            let mut music_muted = self.audio.get_music_muted();
+                                            if ui.checkbox(&mut music_muted, egui::RichText::new("Mute Music").color(egui::Color32::WHITE).font(egui::FontId::proportional(15.0))).changed() {
+                                                self.audio.set_music_muted(music_muted);
+                                                self.audio.play_click();
+                                            }
+                                        });
+
+                                        ui.add_space(24.0);
+
+                                        // Back Button
+                                        let back_btn = egui::Button::new(
+                                            egui::RichText::new("⬅  Back")
+                                                .font(egui::FontId::proportional(18.0))
+                                                .color(egui::Color32::WHITE)
+                                                .strong()
+                                        )
+                                        .fill(egui::Color32::from_rgb(97, 97, 97))
+                                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(189, 189, 189)));
+
+                                        if ui.add_sized([btn_width, btn_height], back_btn).clicked() {
+                                            self.show_options_menu = false;
+                                            self.audio.play_click();
+                                        }
+                                    }
+                                });
+                            });
+                    });
+            }
+        }
+
         // 3. End frame and tessellate
         let full_output = self.egui_ctx.end_pass();
         
@@ -2247,4 +2786,24 @@ fn dummy_compile_test(device: &wgpu::Device, window: &winit::window::Window) {
             predictable_texture_filtering: false,
         },
     );
+}
+
+fn draw_minimap_preview(ui: &mut egui::Ui, grid: &[[u32; 10]; 10]) {
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+        for row in grid {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                for &cell in row {
+                    let color = match cell {
+                        1 => egui::Color32::from_rgb(218, 165, 32), // Path (gold)
+                        2 => egui::Color32::from_rgb(120, 120, 120), // Rock (grey)
+                        _ => egui::Color32::from_rgb(34, 139, 34), // Grass (forest green)
+                    };
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
+                    ui.painter().rect_filled(rect, 1.0, color);
+                }
+            });
+        }
+    });
 }

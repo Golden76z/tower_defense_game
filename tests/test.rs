@@ -118,3 +118,40 @@ fn test_batcher_performance_and_correctness() {
     assert!(duration_compile.as_millis() < 10, "Compilation took too long: {:?}", duration_compile);
 }
 
+#[test]
+fn test_health_bar_color_interpolation() {
+    let interpolate = |health_pct: f32| -> [f32; 4] {
+        let r = if health_pct > 0.5 {
+            2.0 * (1.0 - health_pct)
+        } else {
+            1.0
+        };
+        let g = if health_pct > 0.5 {
+            1.0
+        } else {
+            2.0 * health_pct
+        };
+        let b = 0.0;
+        [r, g, b, 1.0]
+    };
+
+    // 100% health should be Green [0.0, 1.0, 0.0, 1.0]
+    assert_eq!(interpolate(1.0), [0.0, 1.0, 0.0, 1.0]);
+
+    // 50% health should be Yellow [1.0, 1.0, 0.0, 1.0]
+    assert_eq!(interpolate(0.5), [1.0, 1.0, 0.0, 1.0]);
+
+    // 0% health should be Red [1.0, 0.0, 0.0, 1.0]
+    assert_eq!(interpolate(0.0), [1.0, 0.0, 0.0, 1.0]);
+
+    // 75% health should be intermediate orange-green/yellowish
+    let col_75 = interpolate(0.75);
+    assert!(col_75[0] > 0.0 && col_75[0] < 1.0);
+    assert_eq!(col_75[1], 1.0);
+
+    // 25% health should be intermediate red-orange
+    let col_25 = interpolate(0.25);
+    assert_eq!(col_25[0], 1.0);
+    assert!(col_25[1] > 0.0 && col_25[1] < 1.0);
+}
+
