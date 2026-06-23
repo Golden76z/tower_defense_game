@@ -54,6 +54,9 @@ pub struct MapData {
     /// maps, in which case the path is empty.
     #[serde(default)]
     pub path: Vec<[f32; 2]>,
+    /// Optional multiple enemy routes (Hard map / bonus feature).
+    #[serde(default)]
+    pub paths: Vec<Vec<[f32; 2]>>,
 }
 
 /// Errors that can occur while loading a map from JSON.
@@ -192,6 +195,17 @@ impl MapData {
         map.path =
             super::path::Path::new(self.path.iter().map(|p| Vec2::new(p[0], p[1])).collect());
 
+        if !self.paths.is_empty() {
+            map.paths = self.paths
+                .iter()
+                .map(|p_coords| {
+                    super::path::Path::new(p_coords.iter().map(|p| Vec2::new(p[0], p[1])).collect())
+                })
+                .collect();
+        } else {
+            map.paths = vec![map.path.clone()];
+        }
+
         Ok(map)
     }
 }
@@ -284,5 +298,25 @@ mod tests {
             load_map_from_str(json),
             Err(MapLoadError::UnknownTile { row: 0, col: 1, id: 9 })
         ));
+    }
+
+    #[test]
+    fn loads_multiple_paths() {
+        let json = r#"{
+            "width": 3,
+            "height": 2,
+            "tiles": [[0, 1, 0], [0, 1, 0]],
+            "path": [[1.0, 0.0], [1.0, 1.0]],
+            "paths": [
+                [[1.0, 0.0], [1.0, 1.0]],
+                [[0.0, 0.0], [0.0, 1.0]]
+            ]
+        }"#;
+        let map = load_map_from_str(json).unwrap();
+        assert_eq!(map.paths.len(), 2);
+        assert_eq!(map.paths[0].len(), 2);
+        assert_eq!(map.paths[1].len(), 2);
+        assert_eq!(map.paths[0].waypoint(0), Some(glam::Vec2::new(1.0, 0.0)));
+        assert_eq!(map.paths[1].waypoint(0), Some(glam::Vec2::new(0.0, 0.0)));
     }
 }

@@ -20,6 +20,8 @@ pub struct Map {
     /// Waypoint route enemies follow across this map (tile-space coordinates).
     /// Empty when the map has no defined path.
     pub path: Path,
+    /// Support for multiple paths (Hard map / bonus feature)
+    pub paths: Vec<Path>,
 }
 
 impl Map {
@@ -29,6 +31,7 @@ impl Map {
             height,
             tiles: vec![Tile::default(); (width * height) as usize],
             path: Path::default(),
+            paths: Vec::new(),
         }
     }
 
@@ -124,6 +127,7 @@ impl Map {
             }
         }
 
+        map.paths = vec![map.path.clone()];
         map
     }
 }

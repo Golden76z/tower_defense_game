@@ -9,6 +9,7 @@ pub struct FastEnemy {
     speed: f32,
     reward: u32,
     waypoint_index: usize,
+    path: Option<Path>,
 }
 
 impl FastEnemy {
@@ -20,7 +21,14 @@ impl FastEnemy {
             speed: 4.0,
             reward: 5,
             waypoint_index: 1, // Start by moving to the second waypoint
+            path: None,
         }
+    }
+
+    /// Builder to set a specific path for the enemy.
+    pub fn with_path(mut self, path: Path) -> Self {
+        self.path = Some(path);
+        self
     }
 
     /// Gets the gold reward for defeating this enemy.
@@ -31,20 +39,21 @@ impl FastEnemy {
 
 impl Enemy for FastEnemy {
     fn update(&mut self, dt: f32, path: &Path) {
-        if path.is_finished(self.waypoint_index) {
+        let p = self.path.as_ref().unwrap_or(path);
+        if p.is_finished(self.waypoint_index) {
             return;
         }
 
         // Check if we reached the current waypoint
-        if path.reached_waypoint(self.position, self.waypoint_index) {
+        if p.reached_waypoint(self.position, self.waypoint_index) {
             // Snap to waypoint to avoid accumulating errors
-            self.position = path.waypoint(self.waypoint_index).unwrap();
+            self.position = p.waypoint(self.waypoint_index).unwrap();
             self.waypoint_index += 1;
         }
 
         // If not finished after potentially advancing the waypoint index
-        if !path.is_finished(self.waypoint_index) {
-            let dir = path.get_direction(self.position, self.waypoint_index);
+        if !p.is_finished(self.waypoint_index) {
+            let dir = p.get_direction(self.position, self.waypoint_index);
             self.position += dir * self.speed * dt;
         }
     }
@@ -71,7 +80,8 @@ impl Enemy for FastEnemy {
     }
 
     fn has_reached_end(&self, path: &Path) -> bool {
-        path.is_finished(self.waypoint_index)
+        let p = self.path.as_ref().unwrap_or(path);
+        p.is_finished(self.waypoint_index)
     }
 
     fn enemy_type(&self) -> crate::game::wave_manager::EnemyType {
