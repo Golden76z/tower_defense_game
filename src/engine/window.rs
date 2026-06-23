@@ -22,6 +22,8 @@ pub struct State {
     batcher: crate::renderer::batch::SpriteBatcher,
     /// Per-frame batcher for UI overlays (rendered on top of everything without depth test).
     ui_batcher: crate::renderer::batch::SpriteBatcher,
+    /// Per-frame batcher for scene overlays (depth tested but no depth writing).
+    overlay_batcher: crate::renderer::batch::SpriteBatcher,
     /// Cached static terrain mesh, rebuilt only when the map changes.
     terrain_batcher: crate::renderer::batch::SpriteBatcher,
     map: crate::game::map::Map,
@@ -179,6 +181,7 @@ impl State {
         let mut renderer = crate::renderer::Renderer::new(&device, &queue, &config, &camera);
         let batcher = crate::renderer::batch::SpriteBatcher::new();
         let ui_batcher = crate::renderer::batch::SpriteBatcher::new();
+        let overlay_batcher = crate::renderer::batch::SpriteBatcher::new();
 
         // Register a 1x1 white texture so overlay quads (the hover highlight)
         // are coloured purely by their vertex color.
@@ -318,6 +321,7 @@ impl State {
             renderer,
             batcher,
             ui_batcher,
+            overlay_batcher,
             terrain_batcher,
             map,
             enemy_manager,
@@ -744,6 +748,7 @@ impl State {
         // (towers, enemies, projectiles) are queued each frame.
         self.batcher.clear();
         self.ui_batcher.clear();
+        self.overlay_batcher.clear();
 
         // Draw a translucent 3D highlight box around the hovered tile's top
         // block, at its real height. The same `add_highlight_box` call will
@@ -771,12 +776,26 @@ impl State {
                     [1.0, 0.0, 0.0, 0.45] // Red for invalid
                 };
 
-                self.batcher.add_highlight_box(
+                self.overlay_batcher.add_highlight_box(
                     glam::Vec3::new(pos_x, center_y, pos_z),
                     size,
                     highlight_color,
                     self.highlight_texture_id,
                 );
+
+                if self.selected_tower_index.is_none() {
+                    let placement_range = match self.selected_tower_type {
+                        crate::game::towers::manager::TowerType::Basic => 4.0,
+                        crate::game::towers::manager::TowerType::Sniper => 12.0,
+                    };
+                    let range_y = center_y + TILE_WORLD_SIZE * 0.5 + 0.01;
+                    self.overlay_batcher.add_overlay_circle(
+                        glam::Vec3::new(pos_x, range_y, pos_z),
+                        placement_range * TILE_WORLD_SIZE,
+                        [1.0, 1.0, 1.0, 0.05], // Semi-transparent white
+                        self.highlight_texture_id,
+                    );
+                }
             }
         }
 
@@ -846,7 +865,7 @@ impl State {
                     
                     // Render selected tower highlight box (blue outline)
                     let size = glam::Vec3::splat(TILE_WORLD_SIZE + HIGHLIGHT_INFLATE);
-                    self.batcher.add_highlight_box(
+                    self.overlay_batcher.add_highlight_box(
                         glam::Vec3::new(pos_x, center_y, pos_z),
                         size,
                         [0.0, 0.6, 1.0, 0.45], // Blue highlight
@@ -855,13 +874,12 @@ impl State {
                     
                     // Render range indicator circle on the ground
                     let range_radius = tower.get_range();
-                    let range_world_size = range_radius * 2.0 * TILE_WORLD_SIZE;
                     let range_y = center_y + TILE_WORLD_SIZE * 0.5 + 0.01;
                     
-                    self.batcher.add_overlay_quad(
+                    self.overlay_batcher.add_overlay_circle(
                         glam::Vec3::new(pos_x, range_y, pos_z),
-                        glam::Vec3::new(range_world_size, 0.0, range_world_size),
-                        [0.0, 0.7, 1.0, 0.25], // Semi-transparent blue
+                        range_radius * TILE_WORLD_SIZE,
+                        [1.0, 1.0, 1.0, 0.05], // Semi-transparent white
                         self.highlight_texture_id,
                     );
                 }
@@ -1186,6 +1204,7 @@ impl State {
         // Compile batches and upload to the GPU.
         self.batcher.finalize(&self.device, &self.queue);
         self.ui_batcher.finalize(&self.device, &self.queue);
+        self.overlay_batcher.finalize(&self.device, &self.queue);
     }
 
     /// Queues translucent ground markers tracing the map's enemy path into the
@@ -1224,7 +1243,7 @@ impl State {
                 for i in 0..=steps {
                     let p = a.lerp(b, i as f32 / steps as f32);
                     let (wx, wz) = to_world(p);
-                    self.batcher.add_overlay_quad(
+                    self.overlay_batcher.add_overlay_quad(
                         glam::Vec3::new(wx, y, wz),
                         size,
                         PATH_DEBUG_COLOR,
@@ -1324,6 +1343,14 @@ impl State {
             &self.queue,
             self.color,
             &[&self.terrain_batcher, &self.batcher],
+        )?;
+
+        // Draw scene overlays (depth tested but depth writing disabled).
+        self.renderer.render_overlay_batches(
+            &view,
+            &self.device,
+            &self.queue,
+            &[&self.overlay_batcher],
         )?;
 
         // Draw UI overlays on top of the 3D scene with depth testing disabled.
