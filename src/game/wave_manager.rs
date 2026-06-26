@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnemyType {
     Basic,
     Fast,
@@ -16,7 +18,7 @@ pub struct Wave {
     pub enemy_spawns: Vec<EnemySpawn>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WaveState {
     NotStarted,
     Spawning,
@@ -24,6 +26,7 @@ pub enum WaveState {
     InterWaveDelay,
     CompletedAll,
 }
+
 
 pub struct WaveManager {
     pub waves: Vec<Wave>,

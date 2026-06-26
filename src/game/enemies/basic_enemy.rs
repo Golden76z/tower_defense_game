@@ -4,13 +4,14 @@ use crate::game::enemies::enemy_base::Enemy;
 
 /// A basic enemy type with simple path following and health.
 pub struct BasicEnemy {
-    position: Vec2,
-    health: f32,
-    speed: f32,
-    reward: u32,
-    waypoint_index: usize,
-    path: Option<Path>,
+    pub position: Vec2,
+    pub health: f32,
+    pub speed: f32,
+    pub reward: u32,
+    pub waypoint_index: usize,
+    pub path: Option<Path>,
 }
+
 
 impl BasicEnemy {
     /// Creates a new basic enemy at the given starting position.
@@ -99,7 +100,17 @@ impl Enemy for BasicEnemy {
     fn get_scale(&self) -> f32 {
         0.05
     }
+
+    fn get_waypoint_index(&self) -> usize {
+        self.waypoint_index
+    }
+
+    fn get_path(&self) -> Option<&crate::game::map::path::Path> {
+        self.path.as_ref()
+    }
 }
+
+
 
 #[cfg(test)]
 mod tests {

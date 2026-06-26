@@ -88,4 +88,12 @@ pub trait Enemy {
 
     /// Gets the scale of this enemy for rendering.
     fn get_scale(&self) -> f32;
+
+    /// Gets the current waypoint index this enemy is targeting.
+    fn get_waypoint_index(&self) -> usize;
+
+    /// Gets the path this enemy is following.
+    fn get_path(&self) -> Option<&crate::game::map::path::Path>;
 }
+
+

@@ -108,7 +108,16 @@ pub struct State {
     pub current_map_name: String,
     /// Counter of spawned enemies for path alternation.
     pub enemy_spawn_count: usize,
+    /// Temporary feedback for saving/loading: (message, timer).
+    pub save_feedback: Option<(String, f32)>,
+    /// Whether the statistics screen is currently displayed on the main menu.
+    pub show_stats_screen: bool,
+    /// Whether we are currently loading a saved game (to prevent double-incrementing games_played).
+    pub is_loading_save: bool,
+    /// Cached player statistics loaded from progress file.
+    pub statistics: crate::game::progress::GameStatistics,
 }
+
 
 impl State {
     pub async fn new(window: Arc<Window>) -> anyhow::Result<State> {
@@ -312,6 +321,9 @@ impl State {
 
         let audio = crate::engine::audio::AudioSystem::new();
 
+        let progress_save = crate::game::progress::SaveData::load();
+        let statistics = progress_save.statistics;
+
         let state = Self {
             surface,
             device,
@@ -373,7 +385,12 @@ impl State {
             show_level_select: false,
             current_map_name: "procedural".to_string(),
             enemy_spawn_count: 0,
+            save_feedback: None,
+            show_stats_screen: false,
+            is_loading_save: false,
+            statistics,
         };
+
 
         state.update_window_title();
 
@@ -397,6 +414,11 @@ impl State {
 
         self.continued_after_victory = false;
         self.game_state = crate::game::game_state::GameState::Playing;
+
+        if !self.is_loading_save {
+            self.statistics.games_played += 1;
+            self.save_statistics();
+        }
     }
 
     pub fn load_level(&mut self, name: &str) {
@@ -429,6 +451,154 @@ impl State {
         // Reset game state
         self.start_game();
     }
+
+    pub fn save_game(&mut self) -> Result<(), anyhow::Error> {
+        use crate::game::save_game::{SaveData, SavedTower, SavedEnemy};
+
+        let towers = self.tower_manager.towers.iter().map(|t| {
+            SavedTower {
+                tower_type: t.tower_type(),
+                position: t.get_position(),
+                level: t.get_level(),
+                rotation: t.get_rotation(),
+            }
+        }).collect();
+
+        let enemies = self.enemy_manager.get_enemies().iter().map(|e| {
+            let path_index = if let Some(enemy_path) = e.get_path() {
+                self.map.paths.iter().position(|p| p == enemy_path).unwrap_or(0)
+            } else {
+                0
+            };
+            SavedEnemy {
+                enemy_type: e.enemy_type(),
+                position: e.get_position(),
+                health: e.get_health(),
+                waypoint_index: e.get_waypoint_index(),
+                path_index,
+            }
+        }).collect();
+
+        let save_data = SaveData {
+            map_name: self.current_map_name.clone(),
+            money: self.economy.money,
+            lives: self.player_stats.lives,
+            max_lives: self.player_stats.max_lives,
+            current_wave_index: self.wave_manager.current_wave_index,
+            current_spawn_index: self.wave_manager.current_spawn_index,
+            spawn_count_current_group: self.wave_manager.spawn_count_current_group,
+            spawn_timer: self.wave_manager.spawn_timer,
+            inter_wave_timer: self.wave_manager.inter_wave_timer,
+            wave_state: self.wave_manager.state,
+            enemy_spawn_count: self.enemy_spawn_count,
+            continued_after_victory: self.continued_after_victory,
+            towers,
+            enemies,
+        };
+
+        save_data.save_to_file("isoguard_save.json")?;
+        self.save_feedback = Some(("Game Saved Successfully!".to_string(), 2.0));
+        log::info!("Game saved to isoguard_save.json");
+        Ok(())
+    }
+
+    pub fn save_statistics(&self) {
+        let mut save = crate::game::progress::SaveData::load();
+        save.statistics = self.statistics.clone();
+        save.save();
+    }
+
+    pub fn load_game(&mut self) -> Result<(), anyhow::Error> {
+        self.is_loading_save = true;
+        let result = self.load_game_impl();
+        self.is_loading_save = false;
+        result
+    }
+
+    fn load_game_impl(&mut self) -> Result<(), anyhow::Error> {
+        use crate::game::save_game::SaveData;
+        use crate::game::towers::basic_tower::BasicTower;
+        use crate::game::towers::sniper_tower::SniperTower;
+        use crate::game::enemies::basic_enemy::BasicEnemy;
+        use crate::game::enemies::fast_enemy::FastEnemy;
+
+        let save_data = SaveData::load_from_file("isoguard_save.json")?;
+
+        // 1. Load the map (resets everything)
+        self.load_level(&save_data.map_name);
+
+        // 2. Restore economy and player stats
+        self.economy.money = save_data.money;
+        self.player_stats.lives = save_data.lives;
+        self.player_stats.max_lives = save_data.max_lives;
+
+        // 3. Restore wave manager properties
+        self.wave_manager.current_wave_index = save_data.current_wave_index;
+        self.wave_manager.current_spawn_index = save_data.current_spawn_index;
+        self.wave_manager.spawn_count_current_group = save_data.spawn_count_current_group;
+        self.wave_manager.spawn_timer = save_data.spawn_timer;
+        self.wave_manager.inter_wave_timer = save_data.inter_wave_timer;
+        self.wave_manager.state = save_data.wave_state;
+
+        self.enemy_spawn_count = save_data.enemy_spawn_count;
+        self.continued_after_victory = save_data.continued_after_victory;
+
+        // Reset runtime structures
+        self.enemy_manager = crate::game::enemies::EnemyManager::new();
+        self.tower_manager = crate::game::towers::manager::TowerManager::new();
+        self.projectiles.clear();
+        self.popups.clear();
+        self.particles.clear();
+        self.selected_tower_index = None;
+
+        // 4. Reconstruct towers
+        for t in save_data.towers {
+            let tower: Box<dyn crate::game::towers::tower_base::Tower> = match t.tower_type {
+                crate::game::towers::manager::TowerType::Basic => {
+                    let mut b = BasicTower::new(t.position);
+                    b.level = t.level;
+                    b.rotation = t.rotation;
+                    Box::new(b)
+                }
+                crate::game::towers::manager::TowerType::Sniper => {
+                    let mut s = SniperTower::new(t.position);
+                    s.level = t.level;
+                    s.rotation = t.rotation;
+                    Box::new(s)
+                }
+            };
+            self.tower_manager.towers.push(tower);
+        }
+
+        // 5. Reconstruct enemies
+        for e in save_data.enemies {
+            let path = self.map.paths.get(e.path_index).unwrap_or(&self.map.path);
+            let enemy: Box<dyn crate::game::enemies::enemy_base::Enemy> = match e.enemy_type {
+                crate::game::wave_manager::EnemyType::Basic => {
+                    let mut b = BasicEnemy::new(e.position).with_path(path.clone());
+                    b.health = e.health;
+                    b.waypoint_index = e.waypoint_index;
+                    Box::new(b)
+                }
+                crate::game::wave_manager::EnemyType::Fast => {
+                    let mut f = FastEnemy::new(e.position).with_path(path.clone());
+                    f.health = e.health;
+                    f.waypoint_index = e.waypoint_index;
+                    Box::new(f)
+                }
+            };
+            self.enemy_manager.spawn_enemy(enemy);
+        }
+
+        // Make sure game state is set to playing
+        self.game_state = crate::game::game_state::GameState::Playing;
+
+        self.save_feedback = Some(("Game Loaded Successfully!".to_string(), 2.0));
+        self.update_window_title();
+        log::info!("Game loaded from isoguard_save.json");
+        Ok(())
+    }
+
 
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
@@ -463,6 +633,16 @@ impl State {
     pub fn update(&mut self) {
         // Measure real elapsed time and fold it into the accumulator.
         self.time.begin_frame();
+
+        // Update save/load feedback notification timer
+        let dt = self.time.frame_delta_secs();
+        if let Some((msg, timer)) = self.save_feedback.take() {
+            let next_timer = timer - dt;
+            if next_timer > 0.0 {
+                self.save_feedback = Some((msg, next_timer));
+            }
+        }
+
 
         // Handle keyboard transitions
         if self.input.is_key_just_pressed(winit::keyboard::KeyCode::Escape) {
@@ -536,6 +716,11 @@ impl State {
             self.game_state = crate::game::game_state::GameState::GameOver;
             self.placement_status = "GAME OVER!".to_string();
             self.update_window_title();
+
+            // Save final high score check for statistics
+            let score = self.economy.money.max(0) as u32;
+            self.statistics.high_score = self.statistics.high_score.max(score);
+            self.save_statistics();
             return;
         }
 
@@ -546,6 +731,10 @@ impl State {
 
             // Calculate and save high score/progress
             let score = (self.player_stats.lives.max(0) as u32 * 100) + self.economy.money.max(0) as u32;
+            
+            self.statistics.wins += 1;
+            self.statistics.high_score = self.statistics.high_score.max(score);
+
             let mut save = crate::game::progress::SaveData::load();
             match self.current_map_name.as_str() {
                 "easy" => {
@@ -564,6 +753,7 @@ impl State {
                 }
                 _ => {}
             }
+            save.statistics = self.statistics.clone();
             save.save();
 
             return;
@@ -605,6 +795,16 @@ impl State {
         if state_changed || wave_num_changed || timer_changed {
             self.update_window_title();
         }
+
+        if state_changed {
+            if prev_state == crate::game::wave_manager::WaveState::WaitingForClean
+                && (self.wave_manager.state == crate::game::wave_manager::WaveState::InterWaveDelay
+                    || self.wave_manager.state == crate::game::wave_manager::WaveState::CompletedAll)
+            {
+                self.statistics.waves_completed += 1;
+                self.save_statistics();
+            }
+        }
         
         let (killed, escaped) = self.enemy_manager.update(dt, &self.map.path);
 
@@ -614,9 +814,18 @@ impl State {
                 self.game_state = crate::game::game_state::GameState::GameOver;
                 self.placement_status = "GAME OVER!".to_string();
                 self.update_window_title();
+
+                let score = self.economy.money.max(0) as u32;
+                self.statistics.high_score = self.statistics.high_score.max(score);
+                self.save_statistics();
                 return;
             }
             self.update_window_title();
+        }
+
+        let killed_count = killed.len();
+        if killed_count > 0 {
+            self.statistics.enemies_killed += killed_count as u32;
         }
 
         for (pos, reward) in killed {
@@ -1550,6 +1759,28 @@ impl State {
                 });
         }
 
+        // Draw Save/Load feedback notification
+        if let Some((msg, _)) = &self.save_feedback {
+            let egui_ctx = self.egui_ctx.clone();
+            egui::Area::new(egui::Id::new("hud_save_feedback"))
+                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 40.0))
+                .show(&egui_ctx, |ui| {
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_black_alpha(220))
+                        .corner_radius(8.0)
+                        .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(0, 230, 255)))
+                        .inner_margin(12.0)
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(msg)
+                                    .font(egui::FontId::proportional(16.0))
+                                    .color(egui::Color32::WHITE)
+                                    .strong()
+                            );
+                        });
+                });
+        }
+
         // Draw Selected Tower Info / Upgrade Panel (right-center)
         let mut upgrade_triggered = false;
         let mut close_triggered = false;
@@ -1823,6 +2054,49 @@ impl State {
                                 }
 
                                 ui.add_space(12.0);
+
+                                // Save Game Button
+                                let save_btn = egui::Button::new(
+                                    egui::RichText::new("💾  Save Game")
+                                        .font(egui::FontId::proportional(18.0))
+                                        .color(egui::Color32::WHITE)
+                                        .strong()
+                                )
+                                .fill(egui::Color32::from_rgb(136, 14, 79)) // Deep Pink/Purple
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(244, 143, 177)));
+
+                                if ui.add_sized([btn_width, btn_height], save_btn).clicked() {
+                                    if let Err(e) = self.save_game() {
+                                        self.save_feedback = Some((format!("Save failed: {}", e), 3.0));
+                                    }
+                                    self.audio.play_click();
+                                }
+
+                                ui.add_space(12.0);
+
+                                // Load Game Button
+                                let save_exists = std::path::Path::new("isoguard_save.json").exists();
+                                ui.add_enabled_ui(save_exists, |ui| {
+                                    let load_btn = egui::Button::new(
+                                        egui::RichText::new("📂  Load Game")
+                                            .font(egui::FontId::proportional(18.0))
+                                            .strong()
+                                    )
+                                    .fill(egui::Color32::from_rgb(74, 20, 140)) // Sleek Purple
+                                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(186, 104, 200)));
+
+                                    if ui.add_sized([btn_width, btn_height], load_btn).clicked() {
+                                        if let Err(e) = self.load_game() {
+                                            self.save_feedback = Some((format!("Load failed: {}", e), 3.0));
+                                        } else {
+                                            self.game_state = crate::game::game_state::GameState::Playing;
+                                        }
+                                        self.audio.play_click();
+                                    }
+                                });
+
+                                ui.add_space(12.0);
+
 
                                 // 3. Quit Button
                                 let quit_btn = egui::Button::new(
@@ -2106,6 +2380,218 @@ impl State {
                                 });
                             });
                     });
+            } else if self.show_stats_screen {
+                // Large modal for Statistics & Achievements
+                egui::Area::new(egui::Id::new("hud_stats_screen"))
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                    .show(&egui_ctx, |ui| {
+                        egui::Frame::NONE
+                            .fill(egui::Color32::from_black_alpha(220)) // Dark frosted glass
+                            .corner_radius(16.0)
+                            .stroke(egui::Stroke::new(2.5, egui::Color32::from_rgb(230, 81, 0))) // Orange glow
+                            .inner_margin(24.0)
+                            .show(ui, |ui| {
+                                ui.set_width(860.0);
+                                ui.vertical_centered(|ui| {
+                                    ui.label(
+                                        egui::RichText::new("COMMANDER STATISTICS")
+                                            .font(egui::FontId::proportional(32.0))
+                                            .color(egui::Color32::from_rgb(230, 81, 0))
+                                            .strong()
+                                    );
+                                    ui.label(
+                                        egui::RichText::new("Tactical performance and operational achievements across campaigns")
+                                            .font(egui::FontId::proportional(14.0))
+                                            .color(egui::Color32::LIGHT_GRAY)
+                                    );
+                                    ui.add_space(20.0);
+
+                                    let games = self.statistics.games_played;
+                                    let wins = self.statistics.wins;
+                                    let waves = self.statistics.waves_completed;
+                                    let kills = self.statistics.enemies_killed;
+                                    let towers = self.statistics.towers_placed;
+                                    let high_score = self.statistics.high_score;
+
+                                    let win_rate = if games > 0 {
+                                        (wins as f32 / games as f32) * 100.0
+                                    } else {
+                                        0.0
+                                    };
+
+                                    // Derive Achievements
+                                    let achievements = [
+                                        ("First Blood", "Eliminate at least 1 enemy", kills >= 1, "🩸"),
+                                        ("Tower Cadet", "Construct at least 1 defensive tower", towers >= 1, "🗼"),
+                                        ("Novice Commander", "Secure at least 1 campaign victory", wins >= 1, "🎖️"),
+                                        ("Wave Rider", "Survive 50 waves in total", waves >= 50, "🌊"),
+                                        ("Architect", "Construct 50 defensive towers in total", towers >= 50, "📐"),
+                                        ("Slayer", "Eliminate 100 enemies in total", kills >= 100, "⚔️"),
+                                    ];
+
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing = egui::vec2(24.0, 0.0);
+
+                                        // Left column: Stats
+                                        ui.vertical(|ui| {
+                                            ui.set_width(380.0);
+                                            egui::Frame::group(ui.style())
+                                                .fill(egui::Color32::from_rgb(25, 25, 25))
+                                                .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(100, 100, 100)))
+                                                .inner_margin(16.0)
+                                                .show(ui, |ui| {
+                                                    ui.vertical(|ui| {
+                                                        ui.label(
+                                                            egui::RichText::new("OPERATIONAL DATA")
+                                                                .font(egui::FontId::proportional(18.0))
+                                                                .color(egui::Color32::WHITE)
+                                                                .strong()
+                                                        );
+                                                        ui.add_space(12.0);
+
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Games Played:").color(egui::Color32::LIGHT_GRAY));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(games.to_string()).color(egui::Color32::WHITE).strong());
+                                                            });
+                                                        });
+                                                        ui.add_space(8.0);
+                                                        ui.separator();
+                                                        ui.add_space(8.0);
+
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Campaign Wins:").color(egui::Color32::LIGHT_GRAY));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(wins.to_string()).color(egui::Color32::WHITE).strong());
+                                                            });
+                                                        });
+                                                        ui.add_space(8.0);
+                                                        ui.separator();
+                                                        ui.add_space(8.0);
+
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Win Rate:").color(egui::Color32::LIGHT_GRAY));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(format!("{:.1}%", win_rate)).color(egui::Color32::WHITE).strong());
+                                                            });
+                                                        });
+                                                        ui.add_space(8.0);
+                                                        ui.separator();
+                                                        ui.add_space(8.0);
+
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Waves Completed:").color(egui::Color32::LIGHT_GRAY));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(waves.to_string()).color(egui::Color32::WHITE).strong());
+                                                            });
+                                                        });
+                                                        ui.add_space(8.0);
+                                                        ui.separator();
+                                                        ui.add_space(8.0);
+
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Enemies Terminated:").color(egui::Color32::LIGHT_GRAY));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(kills.to_string()).color(egui::Color32::WHITE).strong());
+                                                            });
+                                                        });
+                                                        ui.add_space(8.0);
+                                                        ui.separator();
+                                                        ui.add_space(8.0);
+
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Towers Placed:").color(egui::Color32::LIGHT_GRAY));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(towers.to_string()).color(egui::Color32::WHITE).strong());
+                                                            });
+                                                        });
+                                                        ui.add_space(8.0);
+                                                        ui.separator();
+                                                        ui.add_space(8.0);
+
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Personal High Score:").color(egui::Color32::from_rgb(255, 215, 0)));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(high_score.to_string()).color(egui::Color32::from_rgb(255, 215, 0)).strong());
+                                                            });
+                                                        });
+                                                    });
+                                                });
+                                        });
+
+                                        // Right column: Achievements
+                                        ui.vertical(|ui| {
+                                            ui.set_width(400.0);
+                                            egui::Frame::group(ui.style())
+                                                .fill(egui::Color32::from_rgb(25, 25, 25))
+                                                .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(100, 100, 100)))
+                                                .inner_margin(16.0)
+                                                .show(ui, |ui| {
+                                                    ui.vertical(|ui| {
+                                                        let completed_count = achievements.iter().filter(|&&(_, _, unlocked, _)| unlocked).count();
+                                                        let pct = completed_count as f32 / achievements.len() as f32;
+                                                        
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(
+                                                                egui::RichText::new("TACTICAL HONORS")
+                                                                    .font(egui::FontId::proportional(18.0))
+                                                                    .color(egui::Color32::WHITE)
+                                                                    .strong()
+                                                            );
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(
+                                                                    egui::RichText::new(format!("{} / {}", completed_count, achievements.len()))
+                                                                        .color(egui::Color32::from_rgb(230, 81, 0))
+                                                                        .strong()
+                                                                );
+                                                            });
+                                                        });
+                                                        ui.add_space(8.0);
+                                                        
+                                                        // Progress Bar
+                                                        ui.add(
+                                                            egui::ProgressBar::new(pct)
+                                                                .text(format!("{:.0}%", pct * 100.0))
+                                                                .fill(egui::Color32::from_rgb(230, 81, 0))
+                                                        );
+                                                        ui.add_space(16.0);
+
+                                                        // List Achievements
+                                                        for (name, desc, unlocked, emoji) in achievements.iter() {
+                                                            ui.horizontal(|ui| {
+                                                                if *unlocked {
+                                                                    ui.label(egui::RichText::new(*emoji).font(egui::FontId::proportional(22.0)));
+                                                                    ui.vertical(|ui| {
+                                                                        ui.label(egui::RichText::new(*name).color(egui::Color32::from_rgb(255, 215, 0)).strong());
+                                                                        ui.label(egui::RichText::new(*desc).color(egui::Color32::LIGHT_GRAY).font(egui::FontId::proportional(11.0)));
+                                                                    });
+                                                                } else {
+                                                                    ui.label(egui::RichText::new("🔒").font(egui::FontId::proportional(22.0)));
+                                                                    ui.vertical(|ui| {
+                                                                        ui.label(egui::RichText::new(*name).color(egui::Color32::GRAY).strong());
+                                                                        ui.label(egui::RichText::new(*desc).color(egui::Color32::DARK_GRAY).font(egui::FontId::proportional(11.0)));
+                                                                    });
+                                                                }
+                                                            });
+                                                            ui.add_space(6.0);
+                                                        }
+                                                    });
+                                                });
+                                        });
+                                    });
+
+                                    ui.add_space(20.0);
+
+                                    // Back Button
+                                    let back_btn = egui::Button::new(egui::RichText::new("⬅ Back to Menu").strong())
+                                        .fill(egui::Color32::from_rgb(70, 70, 70));
+                                    if ui.add_sized([200.0, 32.0], back_btn).clicked() {
+                                        self.show_stats_screen = false;
+                                        self.audio.play_click();
+                                    }
+                                });
+                            });
+                    });
             } else {
                 // Centered Main Menu modal
                 egui::Area::new(egui::Id::new("hud_main_menu"))
@@ -2157,6 +2643,28 @@ impl State {
 
                                         ui.add_space(16.0);
 
+                                        // Continue Game Button (loads from save file)
+                                        let save_exists = std::path::Path::new("isoguard_save.json").exists();
+                                        ui.add_enabled_ui(save_exists, |ui| {
+                                            let continue_btn = egui::Button::new(
+                                                egui::RichText::new("📂  Continue Game")
+                                                    .font(egui::FontId::proportional(18.0))
+                                                    .strong()
+                                            )
+                                            .fill(egui::Color32::from_rgb(74, 20, 140)) // Sleek Purple
+                                            .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(186, 104, 200)));
+
+                                            if ui.add_sized([btn_width, btn_height], continue_btn).clicked() {
+                                                if let Err(e) = self.load_game() {
+                                                    self.save_feedback = Some((format!("Load failed: {}", e), 3.0));
+                                                }
+                                                self.audio.play_click();
+                                            }
+                                        });
+
+                                        ui.add_space(16.0);
+
+
                                         // 2. Options Button
                                         let options_btn = egui::Button::new(
                                             egui::RichText::new("⚙  Options")
@@ -2169,6 +2677,26 @@ impl State {
 
                                         if ui.add_sized([btn_width, btn_height], options_btn).clicked() {
                                             self.show_options_menu = true;
+                                            self.audio.play_click();
+                                        }
+
+                                        ui.add_space(16.0);
+
+                                        // 3. Stats & Achievements Button
+                                        let stats_btn = egui::Button::new(
+                                            egui::RichText::new("🏆  Stats & Achievements")
+                                                .font(egui::FontId::proportional(18.0))
+                                                .color(egui::Color32::WHITE)
+                                                .strong()
+                                        )
+                                        .fill(egui::Color32::from_rgb(230, 81, 0)) // Bright orange
+                                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 183, 77)));
+
+                                        if ui.add_sized([btn_width, btn_height], stats_btn).clicked() {
+                                            self.show_stats_screen = true;
+                                             // Reload stats from disk when opening to make sure they are fresh
+                                             let save = crate::game::progress::SaveData::load();
+                                             self.statistics = save.statistics;
                                             self.audio.play_click();
                                         }
 
@@ -2372,6 +2900,9 @@ impl State {
                                     log::info!("Placed {:?} tower at {}, {}", tower_type, gx, gz);
                                     self.placement_status = format!("Placed {:?} tower at ({}, {})", tower_type, gx, gz);
                                     self.update_window_title();
+
+                                    self.statistics.towers_placed += 1;
+                                    self.save_statistics();
                                 }
                                 Err(e) => {
                                     log::warn!("Failed to place tower: {}", e);
