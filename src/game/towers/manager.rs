@@ -8,11 +8,14 @@ use crate::game::map::map::Map;
 use crate::game::map::tile::TileType;
 use crate::game::economy::Economy;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TowerType {
     Basic,
     Sniper,
 }
+
 
 impl TowerType {
     pub fn cost(&self) -> i32 {

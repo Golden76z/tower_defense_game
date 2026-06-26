@@ -104,11 +104,22 @@ pub struct State {
     pub show_options_menu: bool,
     /// Whether the level selection screen is active.
     pub show_level_select: bool,
+    /// The index of the currently selected level in the scroll map.
+    pub selected_level_point: Option<usize>,
     /// The name of the currently active map.
     pub current_map_name: String,
     /// Counter of spawned enemies for path alternation.
     pub enemy_spawn_count: usize,
+    /// Temporary feedback for saving/loading: (message, timer).
+    pub save_feedback: Option<(String, f32)>,
+    /// Whether the statistics screen is currently displayed on the main menu.
+    pub show_stats_screen: bool,
+    /// Whether we are currently loading a saved game (to prevent double-incrementing games_played).
+    pub is_loading_save: bool,
+    /// Cached player statistics loaded from progress file.
+    pub statistics: crate::game::progress::GameStatistics,
 }
+
 
 impl State {
     pub async fn new(window: Arc<Window>) -> anyhow::Result<State> {
@@ -312,6 +323,9 @@ impl State {
 
         let audio = crate::engine::audio::AudioSystem::new();
 
+        let progress_save = crate::game::progress::SaveData::load();
+        let statistics = progress_save.statistics;
+
         let state = Self {
             surface,
             device,
@@ -371,9 +385,15 @@ impl State {
             audio,
             show_options_menu: false,
             show_level_select: false,
+            selected_level_point: Some(0),
             current_map_name: "procedural".to_string(),
             enemy_spawn_count: 0,
+            save_feedback: None,
+            show_stats_screen: false,
+            is_loading_save: false,
+            statistics,
         };
+
 
         state.update_window_title();
 
@@ -397,6 +417,11 @@ impl State {
 
         self.continued_after_victory = false;
         self.game_state = crate::game::game_state::GameState::Playing;
+
+        if !self.is_loading_save {
+            self.statistics.games_played += 1;
+            self.save_statistics();
+        }
     }
 
     pub fn load_level(&mut self, name: &str) {
@@ -404,6 +429,7 @@ impl State {
             "easy" => crate::game::map::load_map_from_file("assets/maps/easy.json"),
             "medium" => crate::game::map::load_map_from_file("assets/maps/medium.json"),
             "hard" => crate::game::map::load_map_from_file("assets/maps/hard.json"),
+            "volcanic" => Ok(crate::game::map::Map::generate_island(20, 20, 9999)),
             "procedural" => Ok(crate::game::map::Map::generate_island(20, 20, 1337)),
             _ => crate::game::map::load_map_from_file("assets/maps/test_map.json"),
         };
@@ -429,6 +455,154 @@ impl State {
         // Reset game state
         self.start_game();
     }
+
+    pub fn save_game(&mut self) -> Result<(), anyhow::Error> {
+        use crate::game::save_game::{SaveData, SavedTower, SavedEnemy};
+
+        let towers = self.tower_manager.towers.iter().map(|t| {
+            SavedTower {
+                tower_type: t.tower_type(),
+                position: t.get_position(),
+                level: t.get_level(),
+                rotation: t.get_rotation(),
+            }
+        }).collect();
+
+        let enemies = self.enemy_manager.get_enemies().iter().map(|e| {
+            let path_index = if let Some(enemy_path) = e.get_path() {
+                self.map.paths.iter().position(|p| p == enemy_path).unwrap_or(0)
+            } else {
+                0
+            };
+            SavedEnemy {
+                enemy_type: e.enemy_type(),
+                position: e.get_position(),
+                health: e.get_health(),
+                waypoint_index: e.get_waypoint_index(),
+                path_index,
+            }
+        }).collect();
+
+        let save_data = SaveData {
+            map_name: self.current_map_name.clone(),
+            money: self.economy.money,
+            lives: self.player_stats.lives,
+            max_lives: self.player_stats.max_lives,
+            current_wave_index: self.wave_manager.current_wave_index,
+            current_spawn_index: self.wave_manager.current_spawn_index,
+            spawn_count_current_group: self.wave_manager.spawn_count_current_group,
+            spawn_timer: self.wave_manager.spawn_timer,
+            inter_wave_timer: self.wave_manager.inter_wave_timer,
+            wave_state: self.wave_manager.state,
+            enemy_spawn_count: self.enemy_spawn_count,
+            continued_after_victory: self.continued_after_victory,
+            towers,
+            enemies,
+        };
+
+        save_data.save_to_file("isoguard_save.json")?;
+        self.save_feedback = Some(("Game Saved Successfully!".to_string(), 2.0));
+        log::info!("Game saved to isoguard_save.json");
+        Ok(())
+    }
+
+    pub fn save_statistics(&self) {
+        let mut save = crate::game::progress::SaveData::load();
+        save.statistics = self.statistics.clone();
+        save.save();
+    }
+
+    pub fn load_game(&mut self) -> Result<(), anyhow::Error> {
+        self.is_loading_save = true;
+        let result = self.load_game_impl();
+        self.is_loading_save = false;
+        result
+    }
+
+    fn load_game_impl(&mut self) -> Result<(), anyhow::Error> {
+        use crate::game::save_game::SaveData;
+        use crate::game::towers::basic_tower::BasicTower;
+        use crate::game::towers::sniper_tower::SniperTower;
+        use crate::game::enemies::basic_enemy::BasicEnemy;
+        use crate::game::enemies::fast_enemy::FastEnemy;
+
+        let save_data = SaveData::load_from_file("isoguard_save.json")?;
+
+        // 1. Load the map (resets everything)
+        self.load_level(&save_data.map_name);
+
+        // 2. Restore economy and player stats
+        self.economy.money = save_data.money;
+        self.player_stats.lives = save_data.lives;
+        self.player_stats.max_lives = save_data.max_lives;
+
+        // 3. Restore wave manager properties
+        self.wave_manager.current_wave_index = save_data.current_wave_index;
+        self.wave_manager.current_spawn_index = save_data.current_spawn_index;
+        self.wave_manager.spawn_count_current_group = save_data.spawn_count_current_group;
+        self.wave_manager.spawn_timer = save_data.spawn_timer;
+        self.wave_manager.inter_wave_timer = save_data.inter_wave_timer;
+        self.wave_manager.state = save_data.wave_state;
+
+        self.enemy_spawn_count = save_data.enemy_spawn_count;
+        self.continued_after_victory = save_data.continued_after_victory;
+
+        // Reset runtime structures
+        self.enemy_manager = crate::game::enemies::EnemyManager::new();
+        self.tower_manager = crate::game::towers::manager::TowerManager::new();
+        self.projectiles.clear();
+        self.popups.clear();
+        self.particles.clear();
+        self.selected_tower_index = None;
+
+        // 4. Reconstruct towers
+        for t in save_data.towers {
+            let tower: Box<dyn crate::game::towers::tower_base::Tower> = match t.tower_type {
+                crate::game::towers::manager::TowerType::Basic => {
+                    let mut b = BasicTower::new(t.position);
+                    b.level = t.level;
+                    b.rotation = t.rotation;
+                    Box::new(b)
+                }
+                crate::game::towers::manager::TowerType::Sniper => {
+                    let mut s = SniperTower::new(t.position);
+                    s.level = t.level;
+                    s.rotation = t.rotation;
+                    Box::new(s)
+                }
+            };
+            self.tower_manager.towers.push(tower);
+        }
+
+        // 5. Reconstruct enemies
+        for e in save_data.enemies {
+            let path = self.map.paths.get(e.path_index).unwrap_or(&self.map.path);
+            let enemy: Box<dyn crate::game::enemies::enemy_base::Enemy> = match e.enemy_type {
+                crate::game::wave_manager::EnemyType::Basic => {
+                    let mut b = BasicEnemy::new(e.position).with_path(path.clone());
+                    b.health = e.health;
+                    b.waypoint_index = e.waypoint_index;
+                    Box::new(b)
+                }
+                crate::game::wave_manager::EnemyType::Fast => {
+                    let mut f = FastEnemy::new(e.position).with_path(path.clone());
+                    f.health = e.health;
+                    f.waypoint_index = e.waypoint_index;
+                    Box::new(f)
+                }
+            };
+            self.enemy_manager.spawn_enemy(enemy);
+        }
+
+        // Make sure game state is set to playing
+        self.game_state = crate::game::game_state::GameState::Playing;
+
+        self.save_feedback = Some(("Game Loaded Successfully!".to_string(), 2.0));
+        self.update_window_title();
+        log::info!("Game loaded from isoguard_save.json");
+        Ok(())
+    }
+
 
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
@@ -463,6 +637,16 @@ impl State {
     pub fn update(&mut self) {
         // Measure real elapsed time and fold it into the accumulator.
         self.time.begin_frame();
+
+        // Update save/load feedback notification timer
+        let dt = self.time.frame_delta_secs();
+        if let Some((msg, timer)) = self.save_feedback.take() {
+            let next_timer = timer - dt;
+            if next_timer > 0.0 {
+                self.save_feedback = Some((msg, next_timer));
+            }
+        }
+
 
         // Handle keyboard transitions
         if self.input.is_key_just_pressed(winit::keyboard::KeyCode::Escape) {
@@ -536,6 +720,11 @@ impl State {
             self.game_state = crate::game::game_state::GameState::GameOver;
             self.placement_status = "GAME OVER!".to_string();
             self.update_window_title();
+
+            // Save final high score check for statistics
+            let score = self.economy.money.max(0) as u32;
+            self.statistics.high_score = self.statistics.high_score.max(score);
+            self.save_statistics();
             return;
         }
 
@@ -546,6 +735,10 @@ impl State {
 
             // Calculate and save high score/progress
             let score = (self.player_stats.lives.max(0) as u32 * 100) + self.economy.money.max(0) as u32;
+            
+            self.statistics.wins += 1;
+            self.statistics.high_score = self.statistics.high_score.max(score);
+
             let mut save = crate::game::progress::SaveData::load();
             match self.current_map_name.as_str() {
                 "easy" => {
@@ -558,12 +751,13 @@ impl State {
                     save.medium.high_score = save.medium.high_score.max(score);
                     save.hard.unlocked = true;
                 }
-                "hard" => {
+                "hard" | "volcanic" => {
                     save.hard.completed = true;
                     save.hard.high_score = save.hard.high_score.max(score);
                 }
                 _ => {}
             }
+            save.statistics = self.statistics.clone();
             save.save();
 
             return;
@@ -605,6 +799,16 @@ impl State {
         if state_changed || wave_num_changed || timer_changed {
             self.update_window_title();
         }
+
+        if state_changed {
+            if prev_state == crate::game::wave_manager::WaveState::WaitingForClean
+                && (self.wave_manager.state == crate::game::wave_manager::WaveState::InterWaveDelay
+                    || self.wave_manager.state == crate::game::wave_manager::WaveState::CompletedAll)
+            {
+                self.statistics.waves_completed += 1;
+                self.save_statistics();
+            }
+        }
         
         let (killed, escaped) = self.enemy_manager.update(dt, &self.map.path);
 
@@ -614,9 +818,18 @@ impl State {
                 self.game_state = crate::game::game_state::GameState::GameOver;
                 self.placement_status = "GAME OVER!".to_string();
                 self.update_window_title();
+
+                let score = self.economy.money.max(0) as u32;
+                self.statistics.high_score = self.statistics.high_score.max(score);
+                self.save_statistics();
                 return;
             }
             self.update_window_title();
+        }
+
+        let killed_count = killed.len();
+        if killed_count > 0 {
+            self.statistics.enemies_killed += killed_count as u32;
         }
 
         for (pos, reward) in killed {
@@ -1550,6 +1763,28 @@ impl State {
                 });
         }
 
+        // Draw Save/Load feedback notification
+        if let Some((msg, _)) = &self.save_feedback {
+            let egui_ctx = self.egui_ctx.clone();
+            egui::Area::new(egui::Id::new("hud_save_feedback"))
+                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 40.0))
+                .show(&egui_ctx, |ui| {
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_black_alpha(220))
+                        .corner_radius(8.0)
+                        .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(0, 230, 255)))
+                        .inner_margin(12.0)
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(msg)
+                                    .font(egui::FontId::proportional(16.0))
+                                    .color(egui::Color32::WHITE)
+                                    .strong()
+                            );
+                        });
+                });
+        }
+
         // Draw Selected Tower Info / Upgrade Panel (right-center)
         let mut upgrade_triggered = false;
         let mut close_triggered = false;
@@ -1824,6 +2059,49 @@ impl State {
 
                                 ui.add_space(12.0);
 
+                                // Save Game Button
+                                let save_btn = egui::Button::new(
+                                    egui::RichText::new("💾  Save Game")
+                                        .font(egui::FontId::proportional(18.0))
+                                        .color(egui::Color32::WHITE)
+                                        .strong()
+                                )
+                                .fill(egui::Color32::from_rgb(136, 14, 79)) // Deep Pink/Purple
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(244, 143, 177)));
+
+                                if ui.add_sized([btn_width, btn_height], save_btn).clicked() {
+                                    if let Err(e) = self.save_game() {
+                                        self.save_feedback = Some((format!("Save failed: {}", e), 3.0));
+                                    }
+                                    self.audio.play_click();
+                                }
+
+                                ui.add_space(12.0);
+
+                                // Load Game Button
+                                let save_exists = std::path::Path::new("isoguard_save.json").exists();
+                                ui.add_enabled_ui(save_exists, |ui| {
+                                    let load_btn = egui::Button::new(
+                                        egui::RichText::new("📂  Load Game")
+                                            .font(egui::FontId::proportional(18.0))
+                                            .strong()
+                                    )
+                                    .fill(egui::Color32::from_rgb(74, 20, 140)) // Sleek Purple
+                                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(186, 104, 200)));
+
+                                    if ui.add_sized([btn_width, btn_height], load_btn).clicked() {
+                                        if let Err(e) = self.load_game() {
+                                            self.save_feedback = Some((format!("Load failed: {}", e), 3.0));
+                                        } else {
+                                            self.game_state = crate::game::game_state::GameState::Playing;
+                                        }
+                                        self.audio.play_click();
+                                    }
+                                });
+
+                                ui.add_space(12.0);
+
+
                                 // 3. Quit Button
                                 let quit_btn = egui::Button::new(
                                     egui::RichText::new("🚪  Quit")
@@ -1849,245 +2127,803 @@ impl State {
             let egui_ctx = self.egui_ctx.clone();
             
             if self.show_level_select {
-                // Large modal for Level Selection
+                // Horizontal Scroll Map Level Selection
+                struct LevelInfo {
+                    name: &'static str,
+                    difficulty: &'static str,
+                    biome: &'static str,
+                    biome_emoji: &'static str,
+                    description: &'static str,
+                    map_id: &'static str,
+                    unlocked: bool,
+                    completed: bool,
+                    high_score: u32,
+                    grid: [[u32; 10]; 10],
+                }
+
+                let save = crate::game::progress::SaveData::load();
+
+                let levels = vec![
+                    LevelInfo {
+                        name: "Whispering Woods",
+                        difficulty: "EASY",
+                        biome: "Grasslands",
+                        biome_emoji: "🌲",
+                        description: "A peaceful valley surrounded by dense forests. Perfect for establishing basic defensive perimeters along the straight road.",
+                        map_id: "easy",
+                        unlocked: true,
+                        completed: save.easy.completed,
+                        high_score: save.easy.high_score,
+                        grid: [
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 2, 2, 0, 0, 0, 2, 2, 0, 0],
+                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                            [0, 2, 2, 0, 0, 0, 2, 2, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                        ],
+                    },
+                    LevelInfo {
+                        name: "Dust Devil Canyon",
+                        difficulty: "MEDIUM",
+                        biome: "Desert Dunes",
+                        biome_emoji: "🏜️",
+                        description: "A winding, hot canyon where the desert winds howl. The path bends sharply, giving you multiple angles to mount turret defenses.",
+                        map_id: "medium",
+                        unlocked: save.medium.unlocked,
+                        completed: save.medium.completed,
+                        high_score: save.medium.high_score,
+                        grid: [
+                            [0, 0, 0, 0, 2, 0, 0, 0, 0, 0],
+                            [1, 1, 1, 1, 1, 0, 0, 2, 0, 0],
+                            [0, 2, 0, 0, 1, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 1, 2, 0, 0, 0, 0],
+                            [2, 0, 0, 0, 1, 0, 0, 0, 2, 0],
+                            [0, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+                            [0, 1, 2, 0, 0, 0, 2, 0, 0, 0],
+                            [0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                            [0, 0, 0, 2, 0, 0, 0, 2, 0, 0]
+                        ],
+                    },
+                    LevelInfo {
+                        name: "Frostbite Pass",
+                        difficulty: "HARD",
+                        biome: "Snowy Tundra",
+                        biome_emoji: "❄️",
+                        description: "An icy corridor flanked by frozen peaks. The subzero temperatures freeze your veins, and enemies arrive from multiple directions.",
+                        map_id: "hard",
+                        unlocked: save.hard.unlocked,
+                        completed: save.hard.completed,
+                        high_score: save.hard.high_score,
+                        grid: [
+                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                            [0, 0, 0, 2, 0, 2, 0, 0, 0, 0],
+                            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                            [0, 0, 2, 0, 0, 0, 0, 2, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 2, 0, 0, 0, 0, 0],
+                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                            [0, 0, 0, 2, 0, 2, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 2]
+                        ],
+                    },
+                    LevelInfo {
+                        name: "Obsidian Core",
+                        difficulty: "EXPERT",
+                        biome: "Volcanic Caldera",
+                        biome_emoji: "🌋",
+                        description: "A hellish volcanic basin filled with pools of bubbling lava. Survive intense waves under extreme heat. Relies on a complex procedural seed.",
+                        map_id: "volcanic",
+                        unlocked: save.hard.completed,
+                        completed: save.hard.completed && save.hard.high_score > 0,
+                        high_score: if save.hard.completed { save.hard.high_score } else { 0 },
+                        grid: [
+                            [2, 2, 0, 0, 0, 0, 0, 0, 2, 2],
+                            [2, 0, 0, 1, 1, 1, 1, 0, 0, 2],
+                            [0, 0, 1, 1, 0, 0, 1, 1, 0, 0],
+                            [0, 1, 1, 0, 2, 2, 0, 1, 1, 0],
+                            [1, 1, 0, 0, 2, 2, 0, 0, 1, 1],
+                            [1, 1, 0, 0, 2, 2, 0, 0, 1, 1],
+                            [0, 1, 1, 0, 2, 2, 0, 1, 1, 0],
+                            [0, 0, 1, 1, 0, 0, 1, 1, 0, 0],
+                            [2, 0, 0, 1, 1, 1, 1, 0, 0, 2],
+                            [2, 2, 0, 0, 0, 0, 0, 0, 2, 2]
+                        ],
+                    },
+                    LevelInfo {
+                        name: "Lost Haven",
+                        difficulty: "SANDBOX",
+                        biome: "Cosmic Nexus",
+                        biome_emoji: "🌀",
+                        description: "An infinite procedural sector outside normal space-time. The island reshapes itself dynamically on every jump. Build without limits!",
+                        map_id: "procedural",
+                        unlocked: true,
+                        completed: false,
+                        high_score: 0,
+                        grid: [
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 2, 2, 2, 0, 0, 0, 0],
+                            [0, 0, 2, 0, 0, 0, 2, 0, 0, 0],
+                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
+                            [0, 0, 2, 0, 0, 0, 2, 0, 0, 0],
+                            [0, 0, 0, 2, 2, 2, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                        ],
+                    },
+                ];
+
+                let selected_idx = self.selected_level_point.unwrap_or(0).min(levels.len() - 1);
+
+                let (theme_bg, theme_accent) = match selected_idx {
+                    0 => (egui::Color32::from_rgb(10, 35, 15), egui::Color32::from_rgb(0, 230, 115)),
+                    1 => (egui::Color32::from_rgb(45, 30, 10), egui::Color32::from_rgb(255, 170, 0)),
+                    2 => (egui::Color32::from_rgb(10, 25, 45), egui::Color32::from_rgb(0, 191, 255)),
+                    3 => (egui::Color32::from_rgb(35, 10, 10), egui::Color32::from_rgb(255, 64, 64)),
+                    _ => (egui::Color32::from_rgb(25, 10, 40), egui::Color32::from_rgb(224, 64, 251)),
+                };
+
                 egui::Area::new(egui::Id::new("hud_level_select"))
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                    .show(&egui_ctx, |ui| {
+                        egui::Frame::NONE
+                            .fill(egui::Color32::from_black_alpha(235))
+                            .corner_radius(16.0)
+                            .stroke(egui::Stroke::new(2.5, theme_accent))
+                            .inner_margin(24.0)
+                            .show(ui, |ui| {
+                                ui.set_width(920.0);
+                                ui.vertical(|ui| {
+                                    // Title block
+                                    ui.vertical_centered(|ui| {
+                                        ui.label(
+                                            egui::RichText::new("CAMPAIGN SECTOR SELECTOR")
+                                                .font(egui::FontId::proportional(28.0))
+                                                .color(theme_accent)
+                                                .strong()
+                                        );
+                                        ui.label(
+                                            egui::RichText::new("Warp coordinates unlocked. Scroll and select a sector node.")
+                                                .font(egui::FontId::proportional(14.0))
+                                                .color(egui::Color32::LIGHT_GRAY)
+                                        );
+                                    });
+                                    ui.add_space(20.0);
+
+                                    ui.horizontal(|ui| {
+                                        // Left Area: Scrollable Map
+                                        ui.allocate_ui(egui::vec2(600.0, 340.0), |ui| {
+                                            egui::Frame::canvas(ui.style())
+                                                .fill(egui::Color32::from_rgb(15, 15, 18))
+                                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(30)))
+                                                .corner_radius(8.0)
+                                                .inner_margin(0.0)
+                                                .show(ui, |ui| {
+                                                    ui.set_height(340.0);
+                                                    // Scroll Area
+                                                    egui::ScrollArea::horizontal()
+                                                        .id_source("level_scroll")
+                                                        .max_height(340.0)
+                                                        .show(ui, |ui| {
+                                                            let width = 1600.0;
+                                                            let height = 320.0;
+                                                            let (rect, _response) = ui.allocate_exact_size(
+                                                                egui::vec2(width, height),
+                                                                egui::Sense::click_and_drag(),
+                                                            );
+                                                            
+                                                            let painter = ui.painter_at(rect);
+                                                            
+                                                            // Interpolate and paint the background biomes
+                                                            let segments = 20;
+                                                            let seg_width = width / segments as f32;
+                                                            let biome_colors = vec![
+                                                                egui::Color32::from_rgb(10, 45, 20),   // Grasslands
+                                                                egui::Color32::from_rgb(55, 40, 15),   // Desert
+                                                                egui::Color32::from_rgb(15, 30, 60),   // Tundra
+                                                                egui::Color32::from_rgb(45, 15, 15),   // Volcanic
+                                                                egui::Color32::from_rgb(25, 10, 45),   // Cosmic
+                                                            ];
+                                                            
+                                                            for s in 0..segments {
+                                                                let x_min = rect.min.x + s as f32 * seg_width;
+                                                                let x_max = x_min + seg_width;
+                                                                
+                                                                let pos_pct = s as f32 / (segments - 1) as f32;
+                                                                let float_idx = pos_pct * (biome_colors.len() - 1) as f32;
+                                                                let idx_lower = float_idx.floor() as usize;
+                                                                let idx_upper = float_idx.ceil() as usize;
+                                                                let t = float_idx - idx_lower as f32;
+                                                                
+                                                                let col_lower = biome_colors[idx_lower];
+                                                                let col_upper = biome_colors[idx_upper];
+                                                                
+                                                                let col = egui::Color32::from_rgb(
+                                                                    (col_lower.r() as f32 + (col_upper.r() as f32 - col_lower.r() as f32) * t) as u8,
+                                                                    (col_lower.g() as f32 + (col_upper.g() as f32 - col_lower.g() as f32) * t) as u8,
+                                                                    (col_lower.b() as f32 + (col_upper.b() as f32 - col_lower.b() as f32) * t) as u8,
+                                                                );
+                                                                
+                                                                painter.rect_filled(
+                                                                    egui::Rect::from_min_max(
+                                                                        egui::pos2(x_min, rect.min.y),
+                                                                        egui::pos2(x_max, rect.max.y),
+                                                                    ),
+                                                                    0.0,
+                                                                    col,
+                                                                );
+                                                            }
+                                                            
+                                                            // Draw subtle grid lines
+                                                            for x in (100..1600).step_by(100) {
+                                                                painter.line_segment(
+                                                                    [
+                                                                        egui::pos2(rect.min.x + x as f32, rect.min.y),
+                                                                        egui::pos2(rect.min.x + x as f32, rect.max.y)
+                                                                    ],
+                                                                    egui::Stroke::new(1.0, egui::Color32::from_white_alpha(10)),
+                                                                );
+                                                            }
+                                                            
+                                                            // Coordinates for the 5 level points
+                                                            let points = vec![
+                                                                egui::pos2(rect.min.x + 160.0, rect.min.y + 150.0),
+                                                                egui::pos2(rect.min.x + 480.0, rect.min.y + 90.0),
+                                                                egui::pos2(rect.min.x + 800.0, rect.min.y + 210.0),
+                                                                egui::pos2(rect.min.x + 1120.0, rect.min.y + 100.0),
+                                                                egui::pos2(rect.min.x + 1440.0, rect.min.y + 160.0),
+                                                            ];
+                                                            
+                                                            // Draw the curved dotted connecting path using a cubic Bezier curve
+                                                            let cubic_bezier = |t: f32, p0: egui::Pos2, p1: egui::Pos2, p2: egui::Pos2, p3: egui::Pos2| -> egui::Pos2 {
+                                                                let u = 1.0 - t;
+                                                                let tt = t * t;
+                                                                let uu = u * u;
+                                                                let uuu = uu * u;
+                                                                let ttt = tt * t;
+                                                                egui::pos2(
+                                                                    uuu * p0.x + 3.0 * uu * t * p1.x + 3.0 * u * tt * p2.x + ttt * p3.x,
+                                                                    uuu * p0.y + 3.0 * uu * t * p1.y + 3.0 * u * tt * p2.y + ttt * p3.y,
+                                                                )
+                                                            };
+
+                                                            let dot_colors = vec![
+                                                                egui::Color32::from_rgb(120, 240, 160), // Grasslands
+                                                                egui::Color32::from_rgb(255, 200, 100), // Desert
+                                                                egui::Color32::from_rgb(150, 220, 255), // Tundra
+                                                                egui::Color32::from_rgb(255, 120, 100), // Volcanic
+                                                                egui::Color32::from_rgb(220, 160, 255), // Cosmic
+                                                            ];
+
+                                                            for w in 0..(points.len() - 1) {
+                                                                let p0 = points[w];
+                                                                let p3 = points[w+1];
+                                                                let dx = p3.x - p0.x;
+                                                                let p1 = p0 + egui::vec2(dx * 0.5, 0.0);
+                                                                let p2 = p3 - egui::vec2(dx * 0.5, 0.0);
+
+                                                                let distance = ((p3.x - p0.x).powi(2) + (p3.y - p0.y).powi(2)).sqrt();
+                                                                let dot_spacing = 16.0;
+                                                                let num_dots = (distance / dot_spacing).round() as usize;
+                                                                let num_dots = num_dots.max(2);
+
+                                                                let col_start = dot_colors[w];
+                                                                let col_end = dot_colors[w+1];
+
+                                                                for d in 0..=num_dots {
+                                                                    let t = d as f32 / num_dots as f32;
+                                                                    let pos = cubic_bezier(t, p0, p1, p2, p3);
+
+                                                                    let dot_color = egui::Color32::from_rgb(
+                                                                        (col_start.r() as f32 + (col_end.r() as f32 - col_start.r() as f32) * t) as u8,
+                                                                        (col_start.g() as f32 + (col_end.g() as f32 - col_start.g() as f32) * t) as u8,
+                                                                        (col_start.b() as f32 + (col_end.b() as f32 - col_start.b() as f32) * t) as u8,
+                                                                    );
+
+                                                                    // Draw shadow outline circle
+                                                                    painter.circle_filled(pos, 4.0, egui::Color32::from_black_alpha(180));
+                                                                    // Draw inner colored circle
+                                                                    painter.circle_filled(pos, 2.0, dot_color);
+                                                                }
+                                                            }
+                                                            
+                                                            // Render the interactive nodes
+                                                            for (i, lvl) in levels.iter().enumerate() {
+                                                                let pt = points[i];
+                                                                
+                                                                let node_size = 50.0;
+                                                                let node_rect = egui::Rect::from_center_size(pt, egui::vec2(node_size, node_size));
+                                                                let node_resp = ui.allocate_rect(node_rect, egui::Sense::click());
+                                                                
+                                                                if node_resp.clicked() {
+                                                                    self.selected_level_point = Some(i);
+                                                                    self.audio.play_click();
+                                                                }
+                                                                
+                                                                let is_selected = selected_idx == i;
+                                                                let is_hovered = node_resp.hovered();
+                                                                
+                                                                let (glow_color, node_bg, border_color) = if !lvl.unlocked {
+                                                                    (
+                                                                        egui::Color32::from_rgb(80, 20, 20),
+                                                                        egui::Color32::from_rgb(30, 20, 20),
+                                                                        egui::Color32::from_rgb(100, 40, 40)
+                                                                    )
+                                                                } else if is_selected {
+                                                                    (
+                                                                        theme_accent,
+                                                                        theme_bg,
+                                                                        theme_accent
+                                                                    )
+                                                                } else if is_hovered {
+                                                                    (
+                                                                        egui::Color32::from_rgb(255, 255, 255),
+                                                                        egui::Color32::from_rgb(45, 45, 50),
+                                                                        egui::Color32::WHITE
+                                                                    )
+                                                                } else {
+                                                                    (
+                                                                        egui::Color32::from_white_alpha(50),
+                                                                        egui::Color32::from_rgb(25, 25, 28),
+                                                                        egui::Color32::from_rgb(180, 180, 180)
+                                                                    )
+                                                                };
+                                                                
+                                                                let glow_radius = if is_selected { 26.0 } else if is_hovered { 22.0 } else { 18.0 };
+                                                                painter.circle_filled(
+                                                                    pt,
+                                                                    glow_radius,
+                                                                    egui::Color32::from_rgba_unmultiplied(glow_color.r(), glow_color.g(), glow_color.b(), 60),
+                                                                );
+                                                                
+                                                                painter.circle(
+                                                                    pt,
+                                                                    16.0,
+                                                                    node_bg,
+                                                                    egui::Stroke::new(2.0, border_color),
+                                                                );
+                                                                
+                                                                let node_text = if !lvl.unlocked {
+                                                                    "🔒".to_string()
+                                                                } else {
+                                                                    lvl.biome_emoji.to_string()
+                                                                };
+                                                                
+                                                                painter.text(
+                                                                    pt + egui::vec2(0.0, 1.0),
+                                                                    egui::Align2::CENTER_CENTER,
+                                                                    node_text,
+                                                                    egui::FontId::proportional(16.0),
+                                                                    egui::Color32::WHITE,
+                                                                );
+                                                                
+                                                                let text_offset = if i % 2 == 0 { -32.0 } else { 32.0 };
+                                                                let text_color = if is_selected { theme_accent } else if is_hovered { egui::Color32::WHITE } else { egui::Color32::GRAY };
+                                                                
+                                                                painter.text(
+                                                                    pt + egui::vec2(0.0, text_offset),
+                                                                    egui::Align2::CENTER_CENTER,
+                                                                    format!("Node {}: {}", i + 1, lvl.name),
+                                                                    egui::FontId::proportional(12.0),
+                                                                    text_color,
+                                                                );
+                                                            }
+                                                        });
+                                                });
+                                        });
+                                        
+                                        ui.add_space(16.0);
+
+                                        // Right Area: Details Panel
+                                        let selected_level = &levels[selected_idx];
+                                        ui.allocate_ui(egui::vec2(280.0, 340.0), |ui| {
+                                            egui::Frame::group(ui.style())
+                                                .fill(egui::Color32::from_rgb(20, 20, 24))
+                                                .stroke(egui::Stroke::new(1.5, theme_accent))
+                                                .corner_radius(8.0)
+                                                .inner_margin(12.0)
+                                                .show(ui, |ui| {
+                                                    ui.set_height(316.0);
+                                                    ui.set_width(256.0);
+                                                    ui.vertical(|ui| {
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(
+                                                                egui::RichText::new(selected_level.biome_emoji)
+                                                                    .font(egui::FontId::proportional(22.0))
+                                                            );
+                                                            ui.vertical(|ui| {
+                                                                ui.label(
+                                                                    egui::RichText::new(selected_level.name)
+                                                                        .font(egui::FontId::proportional(16.0))
+                                                                        .color(egui::Color32::WHITE)
+                                                                        .strong()
+                                                                );
+                                                                ui.label(
+                                                                    egui::RichText::new(format!("{} BIOME", selected_level.biome.to_uppercase()))
+                                                                        .font(egui::FontId::proportional(10.0))
+                                                                        .color(theme_accent)
+                                                                        .strong()
+                                                                );
+                                                            });
+                                                        });
+                                                        
+                                                        ui.add_space(8.0);
+                                                        ui.separator();
+                                                        ui.add_space(8.0);
+                                                        
+                                                        ui.vertical_centered(|ui| {
+                                                            draw_minimap_preview(ui, &selected_level.grid);
+                                                        });
+                                                        
+                                                        ui.add_space(8.0);
+                                                        
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(
+                                                                egui::RichText::new("DIFFICULTY:")
+                                                                    .font(egui::FontId::proportional(11.0))
+                                                                    .color(egui::Color32::GRAY)
+                                                            );
+                                                            let diff_color = match selected_level.difficulty {
+                                                                "EASY" => egui::Color32::from_rgb(102, 187, 106),
+                                                                "MEDIUM" => egui::Color32::from_rgb(255, 167, 38),
+                                                                "HARD" => egui::Color32::from_rgb(239, 83, 80),
+                                                                "EXPERT" => egui::Color32::from_rgb(229, 57, 53),
+                                                                _ => egui::Color32::from_rgb(33, 150, 243),
+                                                            };
+                                                            ui.label(
+                                                                egui::RichText::new(selected_level.difficulty)
+                                                                    .font(egui::FontId::proportional(11.0))
+                                                                    .color(diff_color)
+                                                                    .strong()
+                                                            );
+                                                        });
+                                                        
+                                                        if selected_level.map_id != "procedural" && selected_level.map_id != "volcanic" {
+                                                            ui.horizontal(|ui| {
+                                                                ui.label(
+                                                                    egui::RichText::new("HIGH SCORE:")
+                                                                        .font(egui::FontId::proportional(11.0))
+                                                                        .color(egui::Color32::GRAY)
+                                                                );
+                                                                ui.label(
+                                                                    egui::RichText::new(format!("{}", selected_level.high_score))
+                                                                        .font(egui::FontId::proportional(11.0))
+                                                                        .color(egui::Color32::from_rgb(255, 215, 0))
+                                                                        .strong()
+                                                                );
+                                                            });
+                                                            
+                                                            ui.horizontal(|ui| {
+                                                                ui.label(
+                                                                    egui::RichText::new("STATUS:")
+                                                                        .font(egui::FontId::proportional(11.0))
+                                                                        .color(egui::Color32::GRAY)
+                                                                );
+                                                                let (status_txt, status_col) = if selected_level.completed {
+                                                                    ("COMPLETED", egui::Color32::from_rgb(102, 187, 106))
+                                                                } else {
+                                                                    ("UNCOMPLETED", egui::Color32::GRAY)
+                                                                };
+                                                                ui.label(
+                                                                    egui::RichText::new(status_txt)
+                                                                        .font(egui::FontId::proportional(11.0))
+                                                                        .color(status_col)
+                                                                        .strong()
+                                                                );
+                                                            });
+                                                        } else if selected_level.map_id == "volcanic" {
+                                                            ui.horizontal(|ui| {
+                                                                ui.label(
+                                                                    egui::RichText::new("HIGH SCORE:")
+                                                                        .font(egui::FontId::proportional(11.0))
+                                                                        .color(egui::Color32::GRAY)
+                                                                );
+                                                                ui.label(
+                                                                    egui::RichText::new(format!("{}", selected_level.high_score))
+                                                                        .font(egui::FontId::proportional(11.0))
+                                                                        .color(egui::Color32::from_rgb(255, 215, 0))
+                                                                        .strong()
+                                                                );
+                                                            });
+                                                            ui.horizontal(|ui| {
+                                                                ui.label(
+                                                                    egui::RichText::new("STATUS:")
+                                                                        .font(egui::FontId::proportional(11.0))
+                                                                        .color(egui::Color32::GRAY)
+                                                                );
+                                                                let (status_txt, status_col) = if selected_level.completed {
+                                                                    ("COMPLETED", egui::Color32::from_rgb(102, 187, 106))
+                                                                } else {
+                                                                    ("UNCOMPLETED", egui::Color32::GRAY)
+                                                                };
+                                                                ui.label(
+                                                                    egui::RichText::new(status_txt)
+                                                                        .font(egui::FontId::proportional(11.0))
+                                                                        .color(status_col)
+                                                                        .strong()
+                                                                );
+                                                            });
+                                                        } else {
+                                                            ui.horizontal(|ui| {
+                                                                ui.label(
+                                                                    egui::RichText::new("MODE:")
+                                                                        .font(egui::FontId::proportional(11.0))
+                                                                        .color(egui::Color32::GRAY)
+                                                                );
+                                                                ui.label(
+                                                                    egui::RichText::new("FREEBUILD")
+                                                                        .font(egui::FontId::proportional(11.0))
+                                                                        .color(egui::Color32::from_rgb(33, 150, 243))
+                                                                        .strong()
+                                                                );
+                                                            });
+                                                        }
+                                                        
+                                                        ui.add_space(8.0);
+                                                        
+                                                        ui.label(
+                                                            egui::RichText::new(selected_level.description)
+                                                                .font(egui::FontId::proportional(11.0))
+                                                                .color(egui::Color32::LIGHT_GRAY)
+                                                        );
+                                                        
+                                                        ui.add_space(14.0);
+                                                        
+                                                        if !selected_level.unlocked {
+                                                            ui.add_enabled_ui(false, |ui| {
+                                                                let _ = ui.add_sized(
+                                                                    [232.0, 32.0],
+                                                                    egui::Button::new(
+                                                                        egui::RichText::new("🔒 SECTOR LOCKED")
+                                                                            .strong()
+                                                                    )
+                                                                );
+                                                            });
+                                                        } else {
+                                                            let btn_color = match selected_level.map_id {
+                                                                "easy" => egui::Color32::from_rgb(46, 125, 50),
+                                                                "medium" => egui::Color32::from_rgb(230, 81, 0),
+                                                                "hard" => egui::Color32::from_rgb(198, 40, 40),
+                                                                "volcanic" => egui::Color32::from_rgb(183, 28, 28),
+                                                                _ => egui::Color32::from_rgb(21, 101, 192),
+                                                            };
+                                                            
+                                                            let play_btn = egui::Button::new(
+                                                                egui::RichText::new("🚀 LAUNCH MISSION")
+                                                                    .font(egui::FontId::proportional(14.0))
+                                                                    .strong()
+                                                            ).fill(btn_color);
+                                                            
+                                                            if ui.add_sized([232.0, 32.0], play_btn).clicked() {
+                                                                self.load_level(selected_level.map_id);
+                                                                self.show_level_select = false;
+                                                                self.audio.play_click();
+                                                            }
+                                                        }
+                                                    });
+                                                });
+                                        });
+                                    });
+                                    
+                                    ui.add_space(20.0);
+                                    
+                                    ui.vertical_centered(|ui| {
+                                        let back_btn = egui::Button::new(
+                                            egui::RichText::new("⬅ Back to Main Menu")
+                                                .font(egui::FontId::proportional(14.0))
+                                                .strong()
+                                        ).fill(egui::Color32::from_rgb(60, 60, 64));
+                                        
+                                        if ui.add_sized([240.0, 32.0], back_btn).clicked() {
+                                            self.show_level_select = false;
+                                            self.audio.play_click();
+                                        }
+                                    });
+                                });
+                            });
+                    });
+            } else if self.show_stats_screen {
+                // Large modal for Statistics & Achievements
+                egui::Area::new(egui::Id::new("hud_stats_screen"))
                     .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                     .show(&egui_ctx, |ui| {
                         egui::Frame::NONE
                             .fill(egui::Color32::from_black_alpha(220)) // Dark frosted glass
                             .corner_radius(16.0)
-                            .stroke(egui::Stroke::new(2.5, egui::Color32::from_rgb(0, 230, 255))) // Cyan glow
+                            .stroke(egui::Stroke::new(2.5, egui::Color32::from_rgb(230, 81, 0))) // Orange glow
                             .inner_margin(24.0)
                             .show(ui, |ui| {
                                 ui.set_width(860.0);
                                 ui.vertical_centered(|ui| {
                                     ui.label(
-                                        egui::RichText::new("SELECT MISSION")
+                                        egui::RichText::new("COMMANDER STATISTICS")
                                             .font(egui::FontId::proportional(32.0))
-                                            .color(egui::Color32::from_rgb(0, 230, 255))
+                                            .color(egui::Color32::from_rgb(230, 81, 0))
                                             .strong()
                                     );
                                     ui.label(
-                                        egui::RichText::new("Select a combat zone to begin defense operations")
+                                        egui::RichText::new("Tactical performance and operational achievements across campaigns")
                                             .font(egui::FontId::proportional(14.0))
                                             .color(egui::Color32::LIGHT_GRAY)
                                     );
                                     ui.add_space(20.0);
 
-                                    let save = crate::game::progress::SaveData::load();
+                                    let games = self.statistics.games_played;
+                                    let wins = self.statistics.wins;
+                                    let waves = self.statistics.waves_completed;
+                                    let kills = self.statistics.enemies_killed;
+                                    let towers = self.statistics.towers_placed;
+                                    let high_score = self.statistics.high_score;
+
+                                    let win_rate = if games > 0 {
+                                        (wins as f32 / games as f32) * 100.0
+                                    } else {
+                                        0.0
+                                    };
+
+                                    // Derive Achievements
+                                    let achievements = [
+                                        ("First Blood", "Eliminate at least 1 enemy", kills >= 1, "🩸"),
+                                        ("Tower Cadet", "Construct at least 1 defensive tower", towers >= 1, "🗼"),
+                                        ("Novice Commander", "Secure at least 1 campaign victory", wins >= 1, "🎖️"),
+                                        ("Wave Rider", "Survive 50 waves in total", waves >= 50, "🌊"),
+                                        ("Architect", "Construct 50 defensive towers in total", towers >= 50, "📐"),
+                                        ("Slayer", "Eliminate 100 enemies in total", kills >= 100, "⚔️"),
+                                    ];
 
                                     ui.horizontal(|ui| {
-                                        ui.spacing_mut().item_spacing = egui::vec2(16.0, 0.0);
+                                        ui.spacing_mut().item_spacing = egui::vec2(24.0, 0.0);
 
-                                        // --- EASY CARD ---
+                                        // Left column: Stats
                                         ui.vertical(|ui| {
+                                            ui.set_width(380.0);
                                             egui::Frame::group(ui.style())
                                                 .fill(egui::Color32::from_rgb(25, 25, 25))
-                                                .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(102, 187, 106)))
-                                                .corner_radius(8.0)
-                                                .inner_margin(12.0)
+                                                .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(100, 100, 100)))
+                                                .inner_margin(16.0)
                                                 .show(ui, |ui| {
-                                                    ui.set_width(190.0);
-                                                    ui.vertical_centered(|ui| {
-                                                        ui.label(egui::RichText::new("EASY").color(egui::Color32::from_rgb(102, 187, 106)).strong());
-                                                        ui.label(egui::RichText::new("Straight Path").color(egui::Color32::WHITE).font(egui::FontId::proportional(15.0)).strong());
-                                                        ui.add_space(8.0);
-
-                                                        // Mini-map preview
-                                                        let easy_grid = [
-                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                                                            [0, 2, 2, 0, 0, 0, 2, 2, 0, 0],
-                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
-                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                                                            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
-                                                            [0, 2, 2, 0, 0, 0, 2, 2, 0, 0],
-                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-                                                        ];
-                                                        draw_minimap_preview(ui, &easy_grid);
-
-                                                        ui.add_space(8.0);
-                                                        ui.label(egui::RichText::new(format!("High Score: {}", save.easy.high_score)).color(egui::Color32::from_rgb(255, 215, 0)));
-                                                        if save.easy.completed {
-                                                            ui.label(egui::RichText::new("✓ Completed").color(egui::Color32::from_rgb(102, 187, 106)));
-                                                        } else {
-                                                            ui.label(egui::RichText::new("Uncompleted").color(egui::Color32::GRAY));
-                                                        }
+                                                    ui.vertical(|ui| {
+                                                        ui.label(
+                                                            egui::RichText::new("OPERATIONAL DATA")
+                                                                .font(egui::FontId::proportional(18.0))
+                                                                .color(egui::Color32::WHITE)
+                                                                .strong()
+                                                        );
                                                         ui.add_space(12.0);
 
-                                                        let play_btn = egui::Button::new(egui::RichText::new("LAUNCH").strong())
-                                                            .fill(egui::Color32::from_rgb(46, 125, 50));
-                                                        if ui.add_sized([120.0, 30.0], play_btn).clicked() {
-                                                            self.load_level("easy");
-                                                            self.show_level_select = false;
-                                                            self.audio.play_click();
-                                                        }
-                                                    });
-                                                });
-                                        });
-
-                                        // --- MEDIUM CARD ---
-                                        ui.vertical(|ui| {
-                                            let unlocked = save.medium.unlocked;
-                                            let border_color = if unlocked { egui::Color32::from_rgb(255, 167, 38) } else { egui::Color32::from_rgb(60, 60, 60) };
-                                            egui::Frame::group(ui.style())
-                                                .fill(egui::Color32::from_rgb(25, 25, 25))
-                                                .stroke(egui::Stroke::new(1.5, border_color))
-                                                .corner_radius(8.0)
-                                                .inner_margin(12.0)
-                                                .show(ui, |ui| {
-                                                    ui.set_width(190.0);
-                                                    ui.vertical_centered(|ui| {
-                                                        ui.label(egui::RichText::new("MEDIUM").color(border_color).strong());
-                                                        ui.label(egui::RichText::new("Winding Path").color(if unlocked { egui::Color32::WHITE } else { egui::Color32::GRAY }).font(egui::FontId::proportional(15.0)).strong());
-                                                        ui.add_space(8.0);
-
-                                                        // Mini-map preview
-                                                        let medium_grid = [
-                                                            [0, 0, 0, 0, 2, 0, 0, 0, 0, 0],
-                                                            [1, 1, 1, 1, 1, 0, 0, 2, 0, 0],
-                                                            [0, 2, 0, 0, 1, 0, 0, 0, 0, 0],
-                                                            [0, 0, 0, 0, 1, 2, 0, 0, 0, 0],
-                                                            [2, 0, 0, 0, 1, 0, 0, 0, 2, 0],
-                                                            [0, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                                                            [0, 1, 2, 0, 0, 0, 2, 0, 0, 0],
-                                                            [0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
-                                                            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                                                            [0, 0, 0, 2, 0, 0, 0, 2, 0, 0]
-                                                        ];
-                                                        draw_minimap_preview(ui, &medium_grid);
-
-                                                        ui.add_space(8.0);
-                                                        if unlocked {
-                                                            ui.label(egui::RichText::new(format!("High Score: {}", save.medium.high_score)).color(egui::Color32::from_rgb(255, 215, 0)));
-                                                            if save.medium.completed {
-                                                                ui.label(egui::RichText::new("✓ Completed").color(egui::Color32::from_rgb(102, 187, 106)));
-                                                            } else {
-                                                                ui.label(egui::RichText::new("Uncompleted").color(egui::Color32::GRAY));
-                                                            }
-                                                            ui.add_space(12.0);
-
-                                                            let play_btn = egui::Button::new(egui::RichText::new("LAUNCH").strong())
-                                                                .fill(egui::Color32::from_rgb(230, 81, 0));
-                                                            if ui.add_sized([120.0, 30.0], play_btn).clicked() {
-                                                                self.load_level("medium");
-                                                                self.show_level_select = false;
-                                                                self.audio.play_click();
-                                                            }
-                                                        } else {
-                                                            ui.label(egui::RichText::new("LOCKED").color(egui::Color32::from_rgb(198, 40, 40)).strong());
-                                                            ui.label(egui::RichText::new("Complete Easy map").color(egui::Color32::GRAY));
-                                                            ui.add_space(12.0);
-                                                            ui.add_enabled_ui(false, |ui| {
-                                                                let _ = ui.add_sized([120.0, 30.0], egui::Button::new("LAUNCH"));
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Games Played:").color(egui::Color32::LIGHT_GRAY));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(games.to_string()).color(egui::Color32::WHITE).strong());
                                                             });
-                                                        }
-                                                    });
-                                                });
-                                        });
-
-                                        // --- HARD CARD ---
-                                        ui.vertical(|ui| {
-                                            let unlocked = save.hard.unlocked;
-                                            let border_color = if unlocked { egui::Color32::from_rgb(239, 83, 80) } else { egui::Color32::from_rgb(60, 60, 60) };
-                                            egui::Frame::group(ui.style())
-                                                .fill(egui::Color32::from_rgb(25, 25, 25))
-                                                .stroke(egui::Stroke::new(1.5, border_color))
-                                                .corner_radius(8.0)
-                                                .inner_margin(12.0)
-                                                .show(ui, |ui| {
-                                                    ui.set_width(190.0);
-                                                    ui.vertical_centered(|ui| {
-                                                        ui.label(egui::RichText::new("HARD").color(border_color).strong());
-                                                        ui.label(egui::RichText::new("Multiple Paths").color(if unlocked { egui::Color32::WHITE } else { egui::Color32::GRAY }).font(egui::FontId::proportional(15.0)).strong());
+                                                        });
+                                                        ui.add_space(8.0);
+                                                        ui.separator();
                                                         ui.add_space(8.0);
 
-                                                        // Mini-map preview
-                                                        let hard_grid = [
-                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
-                                                            [0, 0, 0, 2, 0, 2, 0, 0, 0, 0],
-                                                            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                                                            [0, 0, 2, 0, 0, 0, 0, 2, 0, 0],
-                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                                                            [0, 0, 0, 0, 2, 0, 0, 0, 0, 0],
-                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
-                                                            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                                                            [0, 0, 0, 2, 0, 2, 0, 0, 0, 0],
-                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 2]
-                                                        ];
-                                                        draw_minimap_preview(ui, &hard_grid);
-
-                                                        ui.add_space(8.0);
-                                                        if unlocked {
-                                                            ui.label(egui::RichText::new(format!("High Score: {}", save.hard.high_score)).color(egui::Color32::from_rgb(255, 215, 0)));
-                                                            if save.hard.completed {
-                                                                ui.label(egui::RichText::new("✓ Completed").color(egui::Color32::from_rgb(102, 187, 106)));
-                                                            } else {
-                                                                ui.label(egui::RichText::new("Uncompleted").color(egui::Color32::GRAY));
-                                                            }
-                                                            ui.add_space(12.0);
-
-                                                            let play_btn = egui::Button::new(egui::RichText::new("LAUNCH").strong())
-                                                                .fill(egui::Color32::from_rgb(198, 40, 40));
-                                                            if ui.add_sized([120.0, 30.0], play_btn).clicked() {
-                                                                self.load_level("hard");
-                                                                self.show_level_select = false;
-                                                                self.audio.play_click();
-                                                            }
-                                                        } else {
-                                                            ui.label(egui::RichText::new("LOCKED").color(egui::Color32::from_rgb(198, 40, 40)).strong());
-                                                            ui.label(egui::RichText::new("Complete Medium map").color(egui::Color32::GRAY));
-                                                            ui.add_space(12.0);
-                                                            ui.add_enabled_ui(false, |ui| {
-                                                                let _ = ui.add_sized([120.0, 30.0], egui::Button::new("LAUNCH"));
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Campaign Wins:").color(egui::Color32::LIGHT_GRAY));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(wins.to_string()).color(egui::Color32::WHITE).strong());
                                                             });
-                                                        }
+                                                        });
+                                                        ui.add_space(8.0);
+                                                        ui.separator();
+                                                        ui.add_space(8.0);
+
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Win Rate:").color(egui::Color32::LIGHT_GRAY));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(format!("{:.1}%", win_rate)).color(egui::Color32::WHITE).strong());
+                                                            });
+                                                        });
+                                                        ui.add_space(8.0);
+                                                        ui.separator();
+                                                        ui.add_space(8.0);
+
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Waves Completed:").color(egui::Color32::LIGHT_GRAY));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(waves.to_string()).color(egui::Color32::WHITE).strong());
+                                                            });
+                                                        });
+                                                        ui.add_space(8.0);
+                                                        ui.separator();
+                                                        ui.add_space(8.0);
+
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Enemies Terminated:").color(egui::Color32::LIGHT_GRAY));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(kills.to_string()).color(egui::Color32::WHITE).strong());
+                                                            });
+                                                        });
+                                                        ui.add_space(8.0);
+                                                        ui.separator();
+                                                        ui.add_space(8.0);
+
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Towers Placed:").color(egui::Color32::LIGHT_GRAY));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(towers.to_string()).color(egui::Color32::WHITE).strong());
+                                                            });
+                                                        });
+                                                        ui.add_space(8.0);
+                                                        ui.separator();
+                                                        ui.add_space(8.0);
+
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(egui::RichText::new("Personal High Score:").color(egui::Color32::from_rgb(255, 215, 0)));
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(egui::RichText::new(high_score.to_string()).color(egui::Color32::from_rgb(255, 215, 0)).strong());
+                                                            });
+                                                        });
                                                     });
                                                 });
                                         });
 
-                                        // --- SANDBOX CARD ---
+                                        // Right column: Achievements
                                         ui.vertical(|ui| {
+                                            ui.set_width(400.0);
                                             egui::Frame::group(ui.style())
                                                 .fill(egui::Color32::from_rgb(25, 25, 25))
-                                                .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(33, 150, 243)))
-                                                .corner_radius(8.0)
-                                                .inner_margin(12.0)
+                                                .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(100, 100, 100)))
+                                                .inner_margin(16.0)
                                                 .show(ui, |ui| {
-                                                    ui.set_width(190.0);
-                                                    ui.vertical_centered(|ui| {
-                                                        ui.label(egui::RichText::new("SANDBOX").color(egui::Color32::from_rgb(33, 150, 243)).strong());
-                                                        ui.label(egui::RichText::new("Procedural Map").color(egui::Color32::WHITE).font(egui::FontId::proportional(15.0)).strong());
+                                                    ui.vertical(|ui| {
+                                                        let completed_count = achievements.iter().filter(|&&(_, _, unlocked, _)| unlocked).count();
+                                                        let pct = completed_count as f32 / achievements.len() as f32;
+                                                        
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(
+                                                                egui::RichText::new("TACTICAL HONORS")
+                                                                    .font(egui::FontId::proportional(18.0))
+                                                                    .color(egui::Color32::WHITE)
+                                                                    .strong()
+                                                            );
+                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                ui.label(
+                                                                    egui::RichText::new(format!("{} / {}", completed_count, achievements.len()))
+                                                                        .color(egui::Color32::from_rgb(230, 81, 0))
+                                                                        .strong()
+                                                                );
+                                                            });
+                                                        });
                                                         ui.add_space(8.0);
+                                                        
+                                                        // Progress Bar
+                                                        ui.add(
+                                                            egui::ProgressBar::new(pct)
+                                                                .text(format!("{:.0}%", pct * 100.0))
+                                                                .fill(egui::Color32::from_rgb(230, 81, 0))
+                                                        );
+                                                        ui.add_space(16.0);
 
-                                                        // Mini-map preview (checkered grid to represent procedural generation)
-                                                        let sandbox_grid = [
-                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                                                            [0, 0, 0, 2, 2, 2, 0, 0, 0, 0],
-                                                            [0, 0, 2, 0, 0, 0, 2, 0, 0, 0],
-                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
-                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
-                                                            [0, 2, 0, 0, 0, 0, 0, 2, 0, 0],
-                                                            [0, 0, 2, 0, 0, 0, 2, 0, 0, 0],
-                                                            [0, 0, 0, 2, 2, 2, 0, 0, 0, 0],
-                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                                                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-                                                        ];
-                                                        draw_minimap_preview(ui, &sandbox_grid);
-
-                                                        ui.add_space(8.0);
-                                                        ui.label(egui::RichText::new("Dynamic Seed").color(egui::Color32::from_rgb(33, 150, 243)));
-                                                        ui.label(egui::RichText::new("Infinite Play").color(egui::Color32::GRAY));
-                                                        ui.add_space(12.0);
-
-                                                        let play_btn = egui::Button::new(egui::RichText::new("LAUNCH").strong())
-                                                            .fill(egui::Color32::from_rgb(21, 101, 192));
-                                                        if ui.add_sized([120.0, 30.0], play_btn).clicked() {
-                                                            self.load_level("procedural");
-                                                            self.show_level_select = false;
-                                                            self.audio.play_click();
+                                                        // List Achievements
+                                                        for (name, desc, unlocked, emoji) in achievements.iter() {
+                                                            ui.horizontal(|ui| {
+                                                                if *unlocked {
+                                                                    ui.label(egui::RichText::new(*emoji).font(egui::FontId::proportional(22.0)));
+                                                                    ui.vertical(|ui| {
+                                                                        ui.label(egui::RichText::new(*name).color(egui::Color32::from_rgb(255, 215, 0)).strong());
+                                                                        ui.label(egui::RichText::new(*desc).color(egui::Color32::LIGHT_GRAY).font(egui::FontId::proportional(11.0)));
+                                                                    });
+                                                                } else {
+                                                                    ui.label(egui::RichText::new("🔒").font(egui::FontId::proportional(22.0)));
+                                                                    ui.vertical(|ui| {
+                                                                        ui.label(egui::RichText::new(*name).color(egui::Color32::GRAY).strong());
+                                                                        ui.label(egui::RichText::new(*desc).color(egui::Color32::DARK_GRAY).font(egui::FontId::proportional(11.0)));
+                                                                    });
+                                                                }
+                                                            });
+                                                            ui.add_space(6.0);
                                                         }
                                                     });
                                                 });
@@ -2096,11 +2932,11 @@ impl State {
 
                                     ui.add_space(20.0);
 
-                                    // Cancel/Back Button
+                                    // Back Button
                                     let back_btn = egui::Button::new(egui::RichText::new("⬅ Back to Menu").strong())
                                         .fill(egui::Color32::from_rgb(70, 70, 70));
                                     if ui.add_sized([200.0, 32.0], back_btn).clicked() {
-                                        self.show_level_select = false;
+                                        self.show_stats_screen = false;
                                         self.audio.play_click();
                                     }
                                 });
@@ -2157,6 +2993,28 @@ impl State {
 
                                         ui.add_space(16.0);
 
+                                        // Continue Game Button (loads from save file)
+                                        let save_exists = std::path::Path::new("isoguard_save.json").exists();
+                                        ui.add_enabled_ui(save_exists, |ui| {
+                                            let continue_btn = egui::Button::new(
+                                                egui::RichText::new("📂  Continue Game")
+                                                    .font(egui::FontId::proportional(18.0))
+                                                    .strong()
+                                            )
+                                            .fill(egui::Color32::from_rgb(74, 20, 140)) // Sleek Purple
+                                            .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(186, 104, 200)));
+
+                                            if ui.add_sized([btn_width, btn_height], continue_btn).clicked() {
+                                                if let Err(e) = self.load_game() {
+                                                    self.save_feedback = Some((format!("Load failed: {}", e), 3.0));
+                                                }
+                                                self.audio.play_click();
+                                            }
+                                        });
+
+                                        ui.add_space(16.0);
+
+
                                         // 2. Options Button
                                         let options_btn = egui::Button::new(
                                             egui::RichText::new("⚙  Options")
@@ -2169,6 +3027,26 @@ impl State {
 
                                         if ui.add_sized([btn_width, btn_height], options_btn).clicked() {
                                             self.show_options_menu = true;
+                                            self.audio.play_click();
+                                        }
+
+                                        ui.add_space(16.0);
+
+                                        // 3. Stats & Achievements Button
+                                        let stats_btn = egui::Button::new(
+                                            egui::RichText::new("🏆  Stats & Achievements")
+                                                .font(egui::FontId::proportional(18.0))
+                                                .color(egui::Color32::WHITE)
+                                                .strong()
+                                        )
+                                        .fill(egui::Color32::from_rgb(230, 81, 0)) // Bright orange
+                                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 183, 77)));
+
+                                        if ui.add_sized([btn_width, btn_height], stats_btn).clicked() {
+                                            self.show_stats_screen = true;
+                                             // Reload stats from disk when opening to make sure they are fresh
+                                             let save = crate::game::progress::SaveData::load();
+                                             self.statistics = save.statistics;
                                             self.audio.play_click();
                                         }
 
@@ -2372,6 +3250,9 @@ impl State {
                                     log::info!("Placed {:?} tower at {}, {}", tower_type, gx, gz);
                                     self.placement_status = format!("Placed {:?} tower at ({}, {})", tower_type, gx, gz);
                                     self.update_window_title();
+
+                                    self.statistics.towers_placed += 1;
+                                    self.save_statistics();
                                 }
                                 Err(e) => {
                                     log::warn!("Failed to place tower: {}", e);

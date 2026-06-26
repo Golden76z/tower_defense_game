@@ -181,7 +181,14 @@ mod tests {
         fn get_scale(&self) -> f32 {
             0.05
         }
+        fn get_waypoint_index(&self) -> usize {
+            0
+        }
+        fn get_path(&self) -> Option<&crate::game::map::path::Path> {
+            None
+        }
     }
+
 
     #[test]
     fn test_tower_shoots_enemy_in_range() {
