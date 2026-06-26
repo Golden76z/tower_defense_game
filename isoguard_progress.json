@@ -13,5 +13,21 @@
     "unlocked": true,
     "high_score": 0,
     "completed": false
+  },
+  "statistics": {
+    "games_played": 2,
+    "wins": 0,
+    "waves_completed": 2,
+    "enemies_killed": 24,
+    "towers_placed": 11,
+    "high_score": 10,
+    "gold_spent": 0,
+    "achievements": {
+      "first_blood": false,
+      "architect": false,
+      "wave_survivor": false,
+      "gold_miner": false,
+      "victorious": false
+    }
   }
 }
