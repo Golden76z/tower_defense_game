@@ -27,6 +27,8 @@ pub struct Time {
     frame_delta: Duration,
     /// Fixed steps already run during the current frame (reset each frame).
     steps_this_frame: u32,
+    /// Multiplier for the simulation speed (e.g. 0.5x, 1.0x, 2.0x).
+    pub speed_multiplier: f32,
 }
 
 /// Hard cap on fixed steps per frame. Combined with the frame-time clamp this
@@ -52,6 +54,7 @@ impl Time {
             max_frame_time: fixed_delta * MAX_STEPS_PER_FRAME,
             frame_delta: Duration::ZERO,
             steps_this_frame: 0,
+            speed_multiplier: 1.0,
         }
     }
 
@@ -84,7 +87,7 @@ impl Time {
     pub fn advance(&mut self, raw_delta: Duration) -> Duration {
         let clamped = raw_delta.min(self.max_frame_time);
         self.frame_delta = clamped;
-        self.accumulator += clamped;
+        self.accumulator += clamped.mul_f32(self.speed_multiplier);
         self.steps_this_frame = 0;
         clamped
     }
