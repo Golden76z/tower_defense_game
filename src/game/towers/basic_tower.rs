@@ -48,7 +48,13 @@ impl BasicTower {
 }
 
 impl Tower for BasicTower {
-    fn update(&mut self, dt: f32, enemies: &[Box<dyn Enemy>]) -> Option<Projectile> {
+    fn update(
+        &mut self,
+        dt: f32,
+        enemies: &[Box<dyn Enemy>],
+        spatial_grid: Option<&crate::game::spatial_grid::SpatialGrid>,
+        query_scratch: &mut Vec<usize>,
+    ) -> Option<Projectile> {
         if self.cooldown > 0.0 {
             self.cooldown -= dt;
         }
@@ -57,15 +63,30 @@ impl Tower for BasicTower {
             let mut nearest_enemy: Option<&Box<dyn Enemy>> = None;
             let mut min_distance = f32::MAX;
 
-            for enemy in enemies {
-                if !enemy.is_alive() {
-                    continue;
+            if let Some(grid) = spatial_grid {
+                grid.query(self.position, self.get_range(), query_scratch);
+                for &idx in query_scratch.iter() {
+                    if let Some(enemy) = enemies.get(idx) {
+                        if !enemy.is_alive() {
+                            continue;
+                        }
+                        let dist = self.position.distance(enemy.get_position());
+                        if dist <= self.get_range() && dist < min_distance {
+                            min_distance = dist;
+                            nearest_enemy = Some(enemy);
+                        }
+                    }
                 }
-                
-                let dist = self.position.distance(enemy.get_position());
-                if dist <= self.get_range() && dist < min_distance {
-                    min_distance = dist;
-                    nearest_enemy = Some(enemy);
+            } else {
+                for enemy in enemies {
+                    if !enemy.is_alive() {
+                        continue;
+                    }
+                    let dist = self.position.distance(enemy.get_position());
+                    if dist <= self.get_range() && dist < min_distance {
+                        min_distance = dist;
+                        nearest_enemy = Some(enemy);
+                    }
                 }
             }
 
@@ -197,7 +218,7 @@ mod tests {
             Box::new(MockEnemy::new(Vec2::new(3.0, 4.0), 100.0)), // Distance 5.0
         ];
         
-        let projectile = tower.update(0.1, &enemies);
+        let projectile = tower.update(0.1, &enemies, None, &mut Vec::new());
         assert!(projectile.is_some(), "Tower should shoot at enemy in range");
         assert_eq!(tower.cooldown, 1.0); // Assuming fire_rate is 1.0
     }
@@ -209,7 +230,7 @@ mod tests {
             Box::new(MockEnemy::new(Vec2::new(4.0, 4.0), 100.0)), // Distance ~5.65 > 5.0
         ];
         
-        let projectile = tower.update(0.1, &enemies);
+        let projectile = tower.update(0.1, &enemies, None, &mut Vec::new());
         assert!(projectile.is_none(), "Tower should not shoot at enemy out of range");
         assert_eq!(tower.cooldown, 0.0);
     }
@@ -222,11 +243,11 @@ mod tests {
         ];
         
         // First shot
-        let projectile1 = tower.update(0.1, &enemies);
+        let projectile1 = tower.update(0.1, &enemies, None, &mut Vec::new());
         assert!(projectile1.is_some());
         
         // Immediate second update (no time passed effectively for cooldown)
-        let projectile2 = tower.update(0.1, &enemies);
+        let projectile2 = tower.update(0.1, &enemies, None, &mut Vec::new());
         assert!(projectile2.is_none(), "Tower should not shoot while on cooldown");
         assert!(tower.cooldown > 0.0);
     }
@@ -238,7 +259,7 @@ mod tests {
             Box::new(MockEnemy::new(Vec2::new(0.0, 5.0), 100.0)),
         ];
         
-        tower.update(0.1, &enemies);
+        tower.update(0.1, &enemies, None, &mut Vec::new());
         
         // atan2(5.0, 0.0) is PI/2
         use std::f32::consts::PI;

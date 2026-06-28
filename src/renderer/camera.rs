@@ -96,6 +96,24 @@ impl Camera {
         let t = (plane_y - origin.y) / dir.y;
         Some(origin + dir * t)
     }
+
+    /// Check if a bounding sphere at world_pos with radius is within the screen bounds
+    pub fn is_visible_with_vp(
+        vp: glam::Mat4,
+        world_pos: glam::Vec3,
+        radius: f32,
+        ortho_width: f32,
+        ortho_height: f32,
+    ) -> bool {
+        let clip_pos = vp * glam::Vec4::new(world_pos.x, world_pos.y, world_pos.z, 1.0);
+        let ndc = clip_pos.xyz() / clip_pos.w;
+
+        let pad_x = radius * (2.0 / ortho_width);
+        let pad_y = radius * (2.0 / ortho_height);
+
+        ndc.x >= -1.0 - pad_x && ndc.x <= 1.0 + pad_x &&
+        ndc.y >= -1.0 - pad_y && ndc.y <= 1.0 + pad_y
+    }
 }
 
 impl Default for Camera {

@@ -82,11 +82,17 @@ impl TowerManager {
         Ok(())
     }
 
-    pub fn update_all(&mut self, dt: f32, enemies: &[Box<dyn Enemy>]) -> Vec<Projectile> {
+    pub fn update_all(
+        &mut self,
+        dt: f32,
+        enemies: &[Box<dyn Enemy>],
+        spatial_grid: Option<&crate::game::spatial_grid::SpatialGrid>,
+        query_scratch: &mut Vec<usize>,
+    ) -> Vec<Projectile> {
         let mut projectiles = Vec::new();
 
         for tower in &mut self.towers {
-            if let Some(projectile) = tower.update(dt, enemies) {
+            if let Some(projectile) = tower.update(dt, enemies, spatial_grid, query_scratch) {
                 projectiles.push(projectile);
             }
         }

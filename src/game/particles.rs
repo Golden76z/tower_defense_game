@@ -66,8 +66,26 @@ impl ParticleSystem {
     }
 
     /// Queues all active particles into the sprite batcher.
-    pub fn draw(&self, batcher: &mut crate::renderer::batch::SpriteBatcher, texture_id: usize) {
+    pub fn draw(
+        &self,
+        batcher: &mut crate::renderer::batch::SpriteBatcher,
+        texture_id: usize,
+        cull_params: Option<(glam::Mat4, f32, f32)>,
+    ) {
         for p in &self.particles {
+            if let Some((vp, ortho_width, ortho_height)) = cull_params {
+                let size_max = p.size_start.max_element();
+                if !crate::renderer::camera::Camera::is_visible_with_vp(
+                    vp,
+                    p.position,
+                    size_max * 1.5,
+                    ortho_width,
+                    ortho_height,
+                ) {
+                    continue;
+                }
+            }
+
             let progress = (1.0 - (p.lifetime / p.max_lifetime)).clamp(0.0, 1.0);
             
             // Lerp size

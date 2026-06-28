@@ -54,7 +54,13 @@ pub trait Tower {
     /// * `dt`: The elapsed time since the last frame.
     /// * `enemies`: A slice of current enemies in the game.
     /// Returns an `Option<Projectile>` if the tower fires, otherwise `None`.
-    fn update(&mut self, dt: f32, enemies: &[Box<dyn Enemy>]) -> Option<Projectile>;
+    fn update(
+        &mut self,
+        dt: f32,
+        enemies: &[Box<dyn Enemy>],
+        spatial_grid: Option<&crate::game::spatial_grid::SpatialGrid>,
+        query_scratch: &mut Vec<usize>,
+    ) -> Option<Projectile>;
 
     /// Checks if the tower is currently able to shoot.
     fn can_shoot(&self) -> bool;

@@ -118,6 +118,8 @@ pub struct State {
     pub is_loading_save: bool,
     /// Cached player statistics loaded from progress file.
     pub statistics: crate::game::progress::GameStatistics,
+    spatial_grid: crate::game::spatial_grid::SpatialGrid,
+    query_scratch: Vec<usize>,
 }
 
 
@@ -326,6 +328,9 @@ impl State {
         let progress_save = crate::game::progress::SaveData::load();
         let statistics = progress_save.statistics;
 
+        let spatial_grid = crate::game::spatial_grid::SpatialGrid::new(map.width.max(0) as usize, map.height.max(0) as usize, 2.0);
+        let query_scratch = Vec::with_capacity(128);
+
         let state = Self {
             surface,
             device,
@@ -392,6 +397,8 @@ impl State {
             show_stats_screen: false,
             is_loading_save: false,
             statistics,
+            spatial_grid,
+            query_scratch,
         };
 
 
@@ -446,6 +453,7 @@ impl State {
         };
 
         self.map = map;
+        self.spatial_grid = crate::game::spatial_grid::SpatialGrid::new(self.map.width.max(0) as usize, self.map.height.max(0) as usize, 2.0);
         self.current_map_name = name.to_string();
         self.enemy_spawn_count = 0;
 
@@ -856,8 +864,21 @@ impl State {
             self.particles.spawn_enemy_explosion(glam::Vec3::new(world_x, world_y + 0.02, world_z));
         }
         
+        // Populate spatial grid with enemies for tower queries
+        self.spatial_grid.clear();
+        for (idx, enemy) in self.enemy_manager.get_enemies().iter().enumerate() {
+            if enemy.is_alive() {
+                self.spatial_grid.insert(idx, enemy.get_position());
+            }
+        }
+
         // Update towers and handle projectiles
-        let new_projectiles = self.tower_manager.update_all(dt, self.enemy_manager.get_enemies());
+        let new_projectiles = self.tower_manager.update_all(
+            dt,
+            self.enemy_manager.get_enemies(),
+            Some(&self.spatial_grid),
+            &mut self.query_scratch,
+        );
         
         // Spawn muzzle flash for each new projectile
         for proj in &new_projectiles {
@@ -952,6 +973,12 @@ impl State {
     fn prepare_frame(&mut self) {
         self.renderer.update_camera_uniform(&self.queue, &self.camera, self.config.width, self.config.height);
 
+        // Precompute View-Projection and ortho dimension parameters for frustum culling
+        let vp = self.camera.build_view_projection_matrix(self.config.width, self.config.height);
+        let aspect = self.config.width as f32 / self.config.height as f32;
+        let ortho_height = 2.0 / self.camera.zoom;
+        let ortho_width = ortho_height * aspect;
+
         // Resolve which tile the cursor is over (camera may have moved, so this
         // is recomputed every frame).
         self.hovered_tile = self.pick_tile();
@@ -1023,6 +1050,18 @@ impl State {
             let tile_y = self.map.get_tile(gx, gy).map(|t| t.grid_y).unwrap_or(0);
             
             let world_y = tile_y as f32 * TILE_WORLD_SIZE + TILE_WORLD_SIZE * 0.5;
+
+            // Frustum Culling
+            let world_pos = glam::Vec3::new(world_x, world_y, world_z);
+            if !crate::renderer::camera::Camera::is_visible_with_vp(
+                vp,
+                world_pos,
+                TILE_WORLD_SIZE,
+                ortho_width,
+                ortho_height,
+            ) {
+                continue;
+            }
 
             // Apply scale and color tint based on upgrade level
             let level = tower.get_level();
@@ -1117,6 +1156,19 @@ impl State {
             let tile_y = self.map.get_tile(gx, gy).map(|t| t.grid_y).unwrap_or(0);
             
             let world_y = tile_y as f32 * TILE_WORLD_SIZE + TILE_WORLD_SIZE * 0.5 + 0.05;
+
+            // Frustum Culling (radius includes enemy scale and health bar height offset)
+            let scale = enemy.get_scale();
+            let world_pos = glam::Vec3::new(world_x, world_y, world_z);
+            if !crate::renderer::camera::Camera::is_visible_with_vp(
+                vp,
+                world_pos,
+                scale * 2.0,
+                ortho_width,
+                ortho_height,
+            ) {
+                continue;
+            }
 
             // Draw enemy model
             let model = match enemy.enemy_type() {
@@ -1236,11 +1288,23 @@ impl State {
             let t = if total_dist > 0.0 { 1.0 - (current_dist / total_dist) } else { 1.0 };
             
             let world_y = start_world_y * (1.0 - t) + target_world_y * t;
+
+            // Frustum Culling
+            let world_pos = glam::Vec3::new(world_x, world_y, world_z);
+            if !crate::renderer::camera::Camera::is_visible_with_vp(
+                vp,
+                world_pos,
+                0.1,
+                ortho_width,
+                ortho_height,
+            ) {
+                continue;
+            }
             
             // The generated sphere has radius 1.0, so let's scale it to 0.008
             let scale = 0.008; 
             let vertices = self.projectile_model.generate_vertices(
-                glam::Vec3::new(world_x, world_y, world_z),
+                world_pos,
                 scale,
                 0.0,
                 [1.0, 1.0, 0.0, 1.0], // Yellow
@@ -1250,6 +1314,17 @@ impl State {
 
         // Draw popups
         for popup in &self.popups {
+            // Frustum Culling
+            if !crate::renderer::camera::Camera::is_visible_with_vp(
+                vp,
+                popup.position,
+                0.2,
+                ortho_width,
+                ortho_height,
+            ) {
+                continue;
+            }
+
             let size = glam::Vec2::new(0.12, 0.06); // Billboard size for the +10 popup
             let alpha = popup.lifetime.clamp(0.0, 1.0);
             self.batcher.add_sprite(
@@ -1264,8 +1339,8 @@ impl State {
             );
         }
 
-        // Draw particles
-        self.particles.draw(&mut self.batcher, self.highlight_texture_id);
+        // Draw particles with frustum culling
+        self.particles.draw(&mut self.batcher, self.highlight_texture_id, Some((vp, ortho_width, ortho_height)));
 
         // --- Wave/Game Status UI ---
         let (line1, line2, color1, color2) = match self.game_state {
