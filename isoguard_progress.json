@@ -6,7 +6,7 @@
   },
   "medium": {
     "unlocked": true,
-    "high_score": 525,
+    "high_score": 675,
     "completed": true
   },
   "hard": {
@@ -15,12 +15,12 @@
     "completed": false
   },
   "statistics": {
-    "games_played": 2,
-    "wins": 0,
-    "waves_completed": 2,
-    "enemies_killed": 24,
-    "towers_placed": 11,
-    "high_score": 10,
+    "games_played": 11,
+    "wins": 3,
+    "waves_completed": 12,
+    "enemies_killed": 147,
+    "towers_placed": 61,
+    "high_score": 675,
     "gold_spent": 0,
     "achievements": {
       "first_blood": false,

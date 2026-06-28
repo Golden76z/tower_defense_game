@@ -404,7 +404,7 @@ fn push_color_face(
 }
 
 pub struct SpriteBatcher {
-    items: Vec<BatchItem>,
+    items_by_texture: Vec<Vec<BatchItem>>,
     vertices: Vec<Vertex>,
     batches: Vec<SpriteDrawBatch>,
     vertex_buffer: Option<wgpu::Buffer>,
@@ -413,8 +413,12 @@ pub struct SpriteBatcher {
 
 impl SpriteBatcher {
     pub fn new() -> Self {
+        let mut items_by_texture = Vec::with_capacity(16);
+        for _ in 0..16 {
+            items_by_texture.push(Vec::with_capacity(128));
+        }
         Self {
-            items: Vec::new(),
+            items_by_texture,
             vertices: Vec::new(),
             batches: Vec::new(),
             vertex_buffer: None,
@@ -424,43 +428,53 @@ impl SpriteBatcher {
 
     /// Clears the batch queue for a new frame.
     pub fn clear(&mut self) {
-        self.items.clear();
+        for items in &mut self.items_by_texture {
+            items.clear();
+        }
         self.vertices.clear();
         self.batches.clear();
     }
 
+    fn add_item(&mut self, item: BatchItem) {
+        let tex_id = item.texture_id();
+        if tex_id >= self.items_by_texture.len() {
+            self.items_by_texture.resize_with(tex_id + 1, || Vec::with_capacity(128));
+        }
+        self.items_by_texture[tex_id].push(item);
+    }
+
     /// Adds a 2.5D/3D sprite to the batcher.
     pub fn add_sprite(&mut self, sprite: Sprite, alignment: SpriteAlignment) {
-        self.items.push(BatchItem::Sprite { sprite, alignment });
+        self.add_item(BatchItem::Sprite { sprite, alignment });
     }
 
     /// Adds a 3D cube/block to the batcher with separate top and side textures.
     pub fn add_cube(&mut self, position: glam::Vec3, size: glam::Vec3, side_texture_id: usize, top_texture_id: usize) {
-        self.items.push(BatchItem::CubeSides { position, size, texture_id: side_texture_id });
-        self.items.push(BatchItem::CubeTop { position, size, texture_id: top_texture_id });
+        self.add_item(BatchItem::CubeSides { position, size, texture_id: side_texture_id });
+        self.add_item(BatchItem::CubeTop { position, size, texture_id: top_texture_id });
     }
 
     /// Adds a single cube face to the batcher. Used by face-culled terrain
     /// meshing to emit only the faces that are actually visible.
     pub fn add_face(&mut self, position: glam::Vec3, size: glam::Vec3, face: Face, texture_id: usize) {
-        self.items.push(BatchItem::CubeFace { position, size, face, texture_id });
+        self.add_item(BatchItem::CubeFace { position, size, face, texture_id });
     }
 
     /// Adds a flat, upward-facing overlay quad at `position.y` drawn with the
     /// given (possibly translucent) `color`. Useful for ground decals.
     pub fn add_overlay_quad(&mut self, position: glam::Vec3, size: glam::Vec3, color: [f32; 4], texture_id: usize) {
-        self.items.push(BatchItem::OverlayQuad { position, size, color, texture_id });
+        self.add_item(BatchItem::OverlayQuad { position, size, color, texture_id });
     }
 
     /// Adds a flat, upward-facing overlay circle at `position.y` drawn with the
     /// given (possibly translucent) `color`. Useful for range indicators.
     pub fn add_overlay_circle(&mut self, position: glam::Vec3, radius: f32, color: [f32; 4], texture_id: usize) {
-        self.items.push(BatchItem::OverlayCircle { position, radius, color, texture_id });
+        self.add_item(BatchItem::OverlayCircle { position, radius, color, texture_id });
     }
 
     /// Adds a single cube face tinted with an arbitrary `color`.
     pub fn add_color_face(&mut self, position: glam::Vec3, size: glam::Vec3, face: Face, color: [f32; 4], texture_id: usize) {
-        self.items.push(BatchItem::ColorFace { position, size, face, color, texture_id });
+        self.add_item(BatchItem::ColorFace { position, size, face, color, texture_id });
     }
 
     /// Adds a translucent highlight "shell" around a box centred at `center`
@@ -471,13 +485,13 @@ impl SpriteBatcher {
     /// or a tower floating above the ground — so the same call highlights both.
     pub fn add_highlight_box(&mut self, center: glam::Vec3, size: glam::Vec3, color: [f32; 4], texture_id: usize) {
         for face in [Face::Top, Face::North, Face::South, Face::East, Face::West] {
-            self.items.push(BatchItem::ColorFace { position: center, size, face, color, texture_id });
+            self.add_item(BatchItem::ColorFace { position: center, size, face, color, texture_id });
         }
     }
 
     /// Adds pre-transformed model vertices to the batcher.
     pub fn add_model(&mut self, vertices: Vec<Vertex>, texture_id: usize) {
-        self.items.push(BatchItem::Model { vertices, texture_id });
+        self.add_item(BatchItem::Model { vertices, texture_id });
     }
 
     /// Returns a slice of the compiled batches.
@@ -497,49 +511,27 @@ impl SpriteBatcher {
 
     /// Sorts queued items by texture ID and compiles them into batches on the CPU.
     pub fn compile_batches(&mut self) {
-        // Sort items by texture_id to minimize state changes
-        self.items.sort_by_key(|item| item.texture_id());
-
         self.vertices.clear();
         self.batches.clear();
 
-        if self.items.is_empty() {
-            return;
-        }
+        for (texture_id, items) in self.items_by_texture.iter().enumerate() {
+            if items.is_empty() {
+                continue;
+            }
 
-        let mut current_batch: Option<SpriteDrawBatch> = None;
-
-        for item in &self.items {
-            let texture_id = item.texture_id();
             let start_idx = self.vertices.len();
-            
-            // Generate vertices for the item
-            item.generate_vertices(&mut self.vertices);
-            
+            for item in items {
+                item.generate_vertices(&mut self.vertices);
+            }
             let vertex_count = (self.vertices.len() - start_idx) as u32;
 
-            if let Some(ref mut batch) = current_batch {
-                if batch.texture_id == texture_id {
-                    batch.vertex_count += vertex_count;
-                } else {
-                    self.batches.push(batch.clone());
-                    current_batch = Some(SpriteDrawBatch {
-                        texture_id,
-                        vertex_offset: start_idx as u32,
-                        vertex_count,
-                    });
-                }
-            } else {
-                current_batch = Some(SpriteDrawBatch {
+            if vertex_count > 0 {
+                self.batches.push(SpriteDrawBatch {
                     texture_id,
                     vertex_offset: start_idx as u32,
                     vertex_count,
                 });
             }
-        }
-
-        if let Some(batch) = current_batch {
-            self.batches.push(batch);
         }
     }
 

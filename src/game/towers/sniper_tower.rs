@@ -49,7 +49,13 @@ impl SniperTower {
 }
 
 impl Tower for SniperTower {
-    fn update(&mut self, dt: f32, enemies: &[Box<dyn Enemy>]) -> Option<Projectile> {
+    fn update(
+        &mut self,
+        dt: f32,
+        enemies: &[Box<dyn Enemy>],
+        spatial_grid: Option<&crate::game::spatial_grid::SpatialGrid>,
+        query_scratch: &mut Vec<usize>,
+    ) -> Option<Projectile> {
         if self.cooldown > 0.0 {
             self.cooldown -= dt;
         }
@@ -58,15 +64,30 @@ impl Tower for SniperTower {
             let mut nearest_enemy: Option<&Box<dyn Enemy>> = None;
             let mut min_distance = f32::MAX;
 
-            for enemy in enemies {
-                if !enemy.is_alive() {
-                    continue;
+            if let Some(grid) = spatial_grid {
+                grid.query(self.position, self.get_range(), query_scratch);
+                for &idx in query_scratch.iter() {
+                    if let Some(enemy) = enemies.get(idx) {
+                        if !enemy.is_alive() {
+                            continue;
+                        }
+                        let dist = self.position.distance(enemy.get_position());
+                        if dist <= self.get_range() && dist < min_distance {
+                            min_distance = dist;
+                            nearest_enemy = Some(enemy);
+                        }
+                    }
                 }
-                
-                let dist = self.position.distance(enemy.get_position());
-                if dist <= self.get_range() && dist < min_distance {
-                    min_distance = dist;
-                    nearest_enemy = Some(enemy);
+            } else {
+                for enemy in enemies {
+                    if !enemy.is_alive() {
+                        continue;
+                    }
+                    let dist = self.position.distance(enemy.get_position());
+                    if dist <= self.get_range() && dist < min_distance {
+                        min_distance = dist;
+                        nearest_enemy = Some(enemy);
+                    }
                 }
             }
 
@@ -209,7 +230,7 @@ mod tests {
             Box::new(MockEnemy::new(Vec2::new(6.0, 6.0), 100.0)), // Distance ~8.48 < 12.0
         ];
         
-        let projectile = tower.update(0.1, &enemies);
+        let projectile = tower.update(0.1, &enemies, None, &mut Vec::new());
         assert!(projectile.is_some(), "Sniper should shoot at enemy in range");
         assert_eq!(tower.cooldown, 1.0 / 0.3); // fire_rate is 0.3
     }
@@ -221,7 +242,7 @@ mod tests {
             Box::new(MockEnemy::new(Vec2::new(10.0, 10.0), 100.0)), // Distance ~14.14 > 12.0
         ];
         
-        let projectile = tower.update(0.1, &enemies);
+        let projectile = tower.update(0.1, &enemies, None, &mut Vec::new());
         assert!(projectile.is_none(), "Sniper should not shoot at enemy out of range");
         assert_eq!(tower.cooldown, 0.0);
     }
