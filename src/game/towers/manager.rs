@@ -61,6 +61,10 @@ impl TowerManager {
             return Err("Cannot place on path tiles");
         }
 
+        if !tile.walkable {
+            return Err("Cannot build on this terrain");
+        }
+
         // Check for existing towers
         for tower in &self.towers {
             let tower_pos = tower.get_position();
@@ -201,5 +205,23 @@ mod tests {
         let result = manager.place_tower(&map, position, TowerType::Basic, &mut economy);
         assert!(result.is_ok());
         assert_eq!(economy.money, 50); // 100 - 50 = 50
+    }
+
+    #[test]
+    fn cannot_place_tower_on_non_walkable_terrain() {
+        // Regression: only Path tiles were rejected, so towers could be built on
+        // non-walkable Rock/Water terrain.
+        let mut manager = TowerManager::new();
+        let mut map = Map::new(5, 5);
+        map.set_tile(1, 1, Tile::new(TileType::Rock, 1, 1, 1, false)).unwrap();
+        let mut economy = Economy::new(100);
+
+        let result = manager.place_tower(&map, Vec2::new(1.0, 1.0), TowerType::Basic, &mut economy);
+        assert!(result.is_err(), "must not build on non-walkable rock");
+        assert_eq!(manager.towers.len(), 0);
+        assert_eq!(
+            economy.money, 100,
+            "money must not be spent on a rejected placement"
+        );
     }
 }

@@ -147,6 +147,17 @@ impl WaveManager {
                     return None;
                 }
                 let wave = &self.waves[self.current_wave_index];
+
+                // Skip any spawn groups that produce no enemies (count == 0) so
+                // an empty group neither spawns a phantom enemy nor stalls the wave.
+                while self.current_spawn_index < wave.enemy_spawns.len()
+                    && wave.enemy_spawns[self.current_spawn_index].count == 0
+                {
+                    self.current_spawn_index += 1;
+                    self.spawn_count_current_group = 0;
+                    self.spawn_timer = 0.0;
+                }
+
                 if self.current_spawn_index >= wave.enemy_spawns.len() {
                     self.state = WaveState::WaitingForClean;
                     return None;
@@ -298,5 +309,29 @@ mod tests {
         manager.current_wave_index = manager.waves.len(); // out of range
         assert_eq!(manager.update(0.016, 0), None);
         assert_eq!(manager.state, WaveState::CompletedAll);
+    }
+
+    #[test]
+    fn spawn_group_with_zero_count_is_skipped() {
+        // Regression: a group with count == 0 still spawned one enemy because
+        // the immediate first-spawn ran before the count check.
+        let waves = vec![Wave {
+            enemy_spawns: vec![
+                EnemySpawn {
+                    enemy_type: EnemyType::Basic,
+                    count: 0,
+                    spawn_delay: 0.5,
+                },
+                EnemySpawn {
+                    enemy_type: EnemyType::Fast,
+                    count: 1,
+                    spawn_delay: 0.5,
+                },
+            ],
+        }];
+        let mut manager = WaveManager::new(waves);
+        assert!(manager.start_wave(0));
+        // The empty Basic group must be skipped; the first spawn is the Fast enemy.
+        assert_eq!(manager.update(0.0, 0), Some(EnemyType::Fast));
     }
 }

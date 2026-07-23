@@ -996,13 +996,23 @@ impl State {
                 // Spawn impact burst
                 self.particles.spawn_impact_burst(proj_pos_3d);
 
-                // Damage enemies near the target position
-                for enemy in &mut self.enemy_manager.enemies {
-                    let dist = enemy.get_position().distance(proj.target_position);
-                    if dist < 0.5 {
-                        // 0.5 tile hit radius
-                        enemy.take_damage(proj.damage);
-                    }
+                // Single-target hit: damage only the closest alive enemy within
+                // the 0.5-tile hit radius (basic/sniper towers are single-target,
+                // so a shot must not splash every enemy near the impact point).
+                let candidates: Vec<(usize, glam::Vec2)> = self
+                    .enemy_manager
+                    .enemies
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| e.is_alive())
+                    .map(|(idx, e)| (idx, e.get_position()))
+                    .collect();
+                if let Some(idx) = crate::game::projectiles::projectile::closest_target_within(
+                    proj.target_position,
+                    0.5,
+                    &candidates,
+                ) {
+                    self.enemy_manager.enemies[idx].take_damage(proj.damage);
                 }
             } else {
                 // Spawn trail particle
