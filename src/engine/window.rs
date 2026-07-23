@@ -125,7 +125,6 @@ pub struct State {
     pub show_ingame_settings: bool,
 }
 
-
 impl State {
     pub async fn new(window: Arc<Window>) -> anyhow::Result<State> {
         let size = window.inner_size();
@@ -206,9 +205,13 @@ impl State {
             1,
             image::Rgba([255, 255, 255, 255]),
         ));
-        let white_texture =
-            crate::renderer::texture::Texture::from_image(&device, &queue, &white_pixel, Some("white"))
-                .expect("1x1 white texture is always valid");
+        let white_texture = crate::renderer::texture::Texture::from_image(
+            &device,
+            &queue,
+            &white_pixel,
+            Some("white"),
+        )
+        .expect("1x1 white texture is always valid");
         let highlight_texture_id = renderer.register_texture(&device, &white_texture);
 
         // Load the enemy texture
@@ -250,7 +253,14 @@ impl State {
 
         // Generate and register wave UI texture
         let last_wave_ui_text = "MAIN MENU".to_string();
-        let wave_ui_image = create_multiline_text_texture("ISOGUARD", "PRESS ENTER TO START", 160, 48, [255, 220, 0, 255], [0, 255, 255, 255]);
+        let wave_ui_image = create_multiline_text_texture(
+            "ISOGUARD",
+            "PRESS ENTER TO START",
+            160,
+            48,
+            [255, 220, 0, 255],
+            [0, 255, 255, 255],
+        );
         let wave_ui_texture = crate::renderer::texture::Texture::from_image(
             &device,
             &queue,
@@ -277,8 +287,9 @@ impl State {
             .expect("Failed to load fast_enemy.obj model");
 
         // Load 3D model for sniper tower
-        let sniper_tower_model = crate::renderer::model::Model::load("assets/models/sniper_tower.obj")
-            .expect("Failed to load sniper_tower.obj model");
+        let sniper_tower_model =
+            crate::renderer::model::Model::load("assets/models/sniper_tower.obj")
+                .expect("Failed to load sniper_tower.obj model");
 
         // Prefer a hand-authored map from JSON; fall back to procedural
         // generation if the file is missing or invalid so the game always
@@ -290,7 +301,9 @@ impl State {
                 map
             }
             Err(e) => {
-                log::warn!("Failed to load map from {MAP_PATH}: {e}. Falling back to procedural island.");
+                log::warn!(
+                    "Failed to load map from {MAP_PATH}: {e}. Falling back to procedural island."
+                );
                 crate::game::map::Map::generate_island(20, 20, 1337)
             }
         };
@@ -331,7 +344,11 @@ impl State {
         let progress_save = crate::game::progress::SaveData::load();
         let statistics = progress_save.statistics;
 
-        let spatial_grid = crate::game::spatial_grid::SpatialGrid::new(map.width.max(0) as usize, map.height.max(0) as usize, 2.0);
+        let spatial_grid = crate::game::spatial_grid::SpatialGrid::new(
+            map.width.max(0) as usize,
+            map.height.max(0) as usize,
+            2.0,
+        );
         let query_scratch = Vec::with_capacity(128);
 
         let state = Self {
@@ -407,7 +424,6 @@ impl State {
             show_ingame_settings: false,
         };
 
-
         state.update_window_title();
 
         Ok(state)
@@ -456,13 +472,20 @@ impl State {
                 map
             }
             Err(e) => {
-                log::warn!("Failed to load map {}: {e}. Falling back to procedural island.", name);
+                log::warn!(
+                    "Failed to load map {}: {e}. Falling back to procedural island.",
+                    name
+                );
                 crate::game::map::Map::generate_island(20, 20, 1337)
             }
         };
 
         self.map = map;
-        self.spatial_grid = crate::game::spatial_grid::SpatialGrid::new(self.map.width.max(0) as usize, self.map.height.max(0) as usize, 2.0);
+        self.spatial_grid = crate::game::spatial_grid::SpatialGrid::new(
+            self.map.width.max(0) as usize,
+            self.map.height.max(0) as usize,
+            2.0,
+        );
         self.current_map_name = name.to_string();
         self.enemy_spawn_count = 0;
 
@@ -474,33 +497,42 @@ impl State {
     }
 
     pub fn save_game(&mut self) -> Result<(), anyhow::Error> {
-        use crate::game::save_game::{SaveData, SavedTower, SavedEnemy};
+        use crate::game::save_game::{SaveData, SavedEnemy, SavedTower};
 
-        let towers = self.tower_manager.towers.iter().map(|t| {
-            SavedTower {
+        let towers = self
+            .tower_manager
+            .towers
+            .iter()
+            .map(|t| SavedTower {
                 tower_type: t.tower_type(),
                 position: t.get_position(),
                 level: t.get_level(),
                 rotation: t.get_rotation(),
-            }
-        }).collect();
+            })
+            .collect();
 
-        let enemies = self.enemy_manager.get_enemies().iter().map(|e| {
-            let path_index = if let Some(enemy_path) = e.get_path() {
-                self.map.paths.iter().position(|p| p == enemy_path).unwrap_or(0)
-            } else {
-                0
-            };
-            SavedEnemy {
-                enemy_type: e.enemy_type(),
-                position: e.get_position(),
-                health: e.get_health(),
-                waypoint_index: e.get_waypoint_index(),
-                path_index,
-            }
-        }).collect();
+        let enemies = self
+            .enemy_manager
+            .get_enemies()
+            .iter()
+            .map(|e| {
+                let path_index = if let Some(enemy_path) = e.get_path() {
+                    self.map.paths.iter().position(|p| p == enemy_path).unwrap_or(0)
+                } else {
+                    0
+                };
+                SavedEnemy {
+                    enemy_type: e.enemy_type(),
+                    position: e.get_position(),
+                    health: e.get_health(),
+                    waypoint_index: e.get_waypoint_index(),
+                    path_index,
+                }
+            })
+            .collect();
 
         let save_data = SaveData {
+            version: crate::game::save_game::SAVE_VERSION,
             map_name: self.current_map_name.clone(),
             money: self.economy.money,
             lives: self.player_stats.lives,
@@ -537,11 +569,11 @@ impl State {
     }
 
     fn load_game_impl(&mut self) -> Result<(), anyhow::Error> {
+        use crate::game::enemies::basic_enemy::BasicEnemy;
+        use crate::game::enemies::fast_enemy::FastEnemy;
         use crate::game::save_game::SaveData;
         use crate::game::towers::basic_tower::BasicTower;
         use crate::game::towers::sniper_tower::SniperTower;
-        use crate::game::enemies::basic_enemy::BasicEnemy;
-        use crate::game::enemies::fast_enemy::FastEnemy;
 
         let save_data = SaveData::load_from_file("isoguard_save.json")?;
 
@@ -620,7 +652,6 @@ impl State {
         Ok(())
     }
 
-
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
             self.config.width = width;
@@ -671,7 +702,6 @@ impl State {
             self.store_animation = (self.store_animation - dt * 6.0).max(0.0);
         }
 
-
         // Handle keyboard transitions
         if self.input.is_key_just_pressed(winit::keyboard::KeyCode::Escape) {
             self.game_state = self.game_state.transition_on_escape();
@@ -688,7 +718,10 @@ impl State {
 
                 if is_continue {
                     self.continued_after_victory = true;
-                    log::info!("Continuing game in sandbox mode! State: {:?}", self.game_state);
+                    log::info!(
+                        "Continuing game in sandbox mode! State: {:?}",
+                        self.game_state
+                    );
                 } else {
                     self.start_game();
                     log::info!("Started game! New state: {:?}", self.game_state);
@@ -725,11 +758,7 @@ impl State {
             self.time_elapsed += dt;
             let angle = self.time_elapsed * 0.15; // Slow cinematic rotation
             let radius = 0.6; // Circular pan radius over procedural island
-            self.camera.target = glam::Vec3::new(
-                angle.cos() * radius,
-                0.0,
-                angle.sin() * radius,
-            );
+            self.camera.target = glam::Vec3::new(angle.cos() * radius, 0.0, angle.sin() * radius);
             return;
         }
 
@@ -752,14 +781,17 @@ impl State {
             return;
         }
 
-        if self.wave_manager.state == crate::game::wave_manager::WaveState::CompletedAll && !self.continued_after_victory {
+        if self.wave_manager.state == crate::game::wave_manager::WaveState::CompletedAll
+            && !self.continued_after_victory
+        {
             self.game_state = crate::game::game_state::GameState::Victory;
             self.placement_status = "VICTORY!".to_string();
             self.update_window_title();
 
             // Calculate and save high score/progress
-            let score = (self.player_stats.lives.max(0) as u32 * 100) + self.economy.money.max(0) as u32;
-            
+            let score =
+                (self.player_stats.lives.max(0) as u32 * 100) + self.economy.money.max(0) as u32;
+
             self.statistics.wins += 1;
             self.statistics.high_score = self.statistics.high_score.max(score);
 
@@ -788,7 +820,7 @@ impl State {
         }
 
         self.time_elapsed += dt;
-        
+
         let active_enemy_count = self.enemy_manager.get_enemies().len();
         let prev_state = self.wave_manager.state;
         let prev_wave_num = self.wave_manager.current_wave_number();
@@ -819,21 +851,21 @@ impl State {
 
         let state_changed = prev_state != self.wave_manager.state;
         let wave_num_changed = prev_wave_num != self.wave_manager.current_wave_number();
-        let timer_changed = (prev_timer * 10.0).round() != (self.wave_manager.inter_wave_timer * 10.0).round();
+        let timer_changed =
+            (prev_timer * 10.0).round() != (self.wave_manager.inter_wave_timer * 10.0).round();
         if state_changed || wave_num_changed || timer_changed {
             self.update_window_title();
         }
 
-        if state_changed {
-            if prev_state == crate::game::wave_manager::WaveState::WaitingForClean
-                && (self.wave_manager.state == crate::game::wave_manager::WaveState::InterWaveDelay
-                    || self.wave_manager.state == crate::game::wave_manager::WaveState::CompletedAll)
-            {
-                self.statistics.waves_completed += 1;
-                self.save_statistics();
-            }
+        if state_changed
+            && prev_state == crate::game::wave_manager::WaveState::WaitingForClean
+            && (self.wave_manager.state == crate::game::wave_manager::WaveState::InterWaveDelay
+                || self.wave_manager.state == crate::game::wave_manager::WaveState::CompletedAll)
+        {
+            self.statistics.waves_completed += 1;
+            self.save_statistics();
         }
-        
+
         let (killed, escaped) = self.enemy_manager.update(dt, &self.map.path);
 
         if escaped > 0 {
@@ -860,11 +892,11 @@ impl State {
             self.economy.add_money(reward as i32);
             self.update_window_title();
             self.audio.play_explosion();
-            
+
             // Calculate 3D position for the popup
             let world_x = (pos.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
             let world_z = (pos.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
-            
+
             let gx = pos.x.round() as i32;
             let gy = pos.y.round() as i32;
             let tile_y = self.map.get_tile(gx, gy).map(|t| t.grid_y).unwrap_or(0);
@@ -877,9 +909,10 @@ impl State {
             });
 
             // Spawn enemy death explosion
-            self.particles.spawn_enemy_explosion(glam::Vec3::new(world_x, world_y + 0.02, world_z));
+            self.particles
+                .spawn_enemy_explosion(glam::Vec3::new(world_x, world_y + 0.02, world_z));
         }
-        
+
         // Populate spatial grid with enemies for tower queries
         self.spatial_grid.clear();
         for (idx, enemy) in self.enemy_manager.get_enemies().iter().enumerate() {
@@ -895,64 +928,79 @@ impl State {
             Some(&self.spatial_grid),
             &mut self.query_scratch,
         );
-        
+
         // Spawn muzzle flash for each new projectile
         for proj in &new_projectiles {
             self.audio.play_shoot();
             let start_gx = proj.start_position.x.round() as i32;
             let start_gy = proj.start_position.y.round() as i32;
             let start_tile_y = self.map.get_tile(start_gx, start_gy).map(|t| t.grid_y).unwrap_or(0);
-            
-            let start_world_x = (proj.start_position.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
-            let start_world_z = (proj.start_position.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
-            let start_world_y = (start_tile_y as f32 + 0.5 + proj.spawn_height_offset) * TILE_WORLD_SIZE;
+
+            let start_world_x =
+                (proj.start_position.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
+            let start_world_z =
+                (proj.start_position.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
+            let start_world_y =
+                (start_tile_y as f32 + 0.5 + proj.spawn_height_offset) * TILE_WORLD_SIZE;
             let muzzle_pos = glam::Vec3::new(start_world_x, start_world_y, start_world_z);
 
             let diff = proj.target_position - proj.start_position;
-            let direction = if diff.length_squared() > 0.0001 { diff.normalize() } else { glam::Vec2::new(1.0, 0.0) };
+            let direction = if diff.length_squared() > 0.0001 {
+                diff.normalize()
+            } else {
+                glam::Vec2::new(1.0, 0.0)
+            };
             self.particles.spawn_muzzle_flash(muzzle_pos, direction);
         }
-        
+
         self.projectiles.extend(new_projectiles);
 
         // Update active projectiles
         let mut to_remove = Vec::new();
         for (i, proj) in self.projectiles.iter_mut().enumerate() {
             let reached = proj.update(dt);
-            
+
             // Calculate current 3D position
             let pos = proj.position;
             let world_x = (pos.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
             let world_z = (pos.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
-            
+
             let start_gx = proj.start_position.x.round() as i32;
             let start_gy = proj.start_position.y.round() as i32;
             let start_tile_y = self.map.get_tile(start_gx, start_gy).map(|t| t.grid_y).unwrap_or(0);
-            
+
             let target_gx = proj.target_position.x.round() as i32;
             let target_gy = proj.target_position.y.round() as i32;
-            let target_tile_y = self.map.get_tile(target_gx, target_gy).map(|t| t.grid_y).unwrap_or(0);
+            let target_tile_y =
+                self.map.get_tile(target_gx, target_gy).map(|t| t.grid_y).unwrap_or(0);
 
-            let start_world_y = (start_tile_y as f32 + 0.5 + proj.spawn_height_offset) * TILE_WORLD_SIZE;
-            let target_world_y = (target_tile_y as f32 + 0.5) * TILE_WORLD_SIZE + 0.2 * TILE_WORLD_SIZE;
-            
+            let start_world_y =
+                (start_tile_y as f32 + 0.5 + proj.spawn_height_offset) * TILE_WORLD_SIZE;
+            let target_world_y =
+                (target_tile_y as f32 + 0.5) * TILE_WORLD_SIZE + 0.2 * TILE_WORLD_SIZE;
+
             let total_dist = proj.start_position.distance(proj.target_position);
             let current_dist = proj.position.distance(proj.target_position);
-            let t_val = if total_dist > 0.0 { 1.0 - (current_dist / total_dist) } else { 1.0 };
-            
+            let t_val = if total_dist > 0.0 {
+                1.0 - (current_dist / total_dist)
+            } else {
+                1.0
+            };
+
             let world_y = start_world_y * (1.0 - t_val) + target_world_y * t_val;
             let proj_pos_3d = glam::Vec3::new(world_x, world_y, world_z);
 
             if reached {
                 to_remove.push(i);
-                
+
                 // Spawn impact burst
                 self.particles.spawn_impact_burst(proj_pos_3d);
 
                 // Damage enemies near the target position
                 for enemy in &mut self.enemy_manager.enemies {
                     let dist = enemy.get_position().distance(proj.target_position);
-                    if dist < 0.5 { // 0.5 tile hit radius
+                    if dist < 0.5 {
+                        // 0.5 tile hit radius
                         enemy.take_damage(proj.damage);
                     }
                 }
@@ -987,7 +1035,12 @@ impl State {
     /// hovered tile, and rebuild the dynamic draw batch. Runs once per rendered
     /// frame (variable rate), independent of the fixed logic steps above.
     fn prepare_frame(&mut self) {
-        self.renderer.update_camera_uniform(&self.queue, &self.camera, self.config.width, self.config.height);
+        self.renderer.update_camera_uniform(
+            &self.queue,
+            &self.camera,
+            self.config.width,
+            self.config.height,
+        );
 
         // Precompute View-Projection and ortho dimension parameters for frustum culling
         let vp = self.camera.build_view_projection_matrix(self.config.width, self.config.height);
@@ -1020,12 +1073,15 @@ impl State {
                 // and doesn't z-fight with the terrain faces.
                 let size = glam::Vec3::splat(TILE_WORLD_SIZE + HIGHLIGHT_INFLATE);
 
-                let is_valid = self.tower_manager.can_place_tower(
-                    &self.map,
-                    glam::Vec2::new(gx as f32, gz as f32),
-                    self.selected_tower_type,
-                    &self.economy,
-                ).is_ok();
+                let is_valid = self
+                    .tower_manager
+                    .can_place_tower(
+                        &self.map,
+                        glam::Vec2::new(gx as f32, gz as f32),
+                        self.selected_tower_type,
+                        &self.economy,
+                    )
+                    .is_ok();
                 let highlight_color = if is_valid {
                     [0.0, 1.0, 0.0, 0.45] // Green for valid
                 } else {
@@ -1060,11 +1116,11 @@ impl State {
             let pos = tower.get_position();
             let world_x = (pos.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
             let world_z = (pos.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
-            
+
             let gx = pos.x.round() as i32;
             let gy = pos.y.round() as i32;
             let tile_y = self.map.get_tile(gx, gy).map(|t| t.grid_y).unwrap_or(0);
-            
+
             let world_y = tile_y as f32 * TILE_WORLD_SIZE + TILE_WORLD_SIZE * 0.5;
 
             // Frustum Culling
@@ -1083,7 +1139,7 @@ impl State {
             let level = tower.get_level();
             let (scale_multiplier, tint_color) = match level {
                 1 => (1.0, [1.0, 1.0, 1.0, 1.0]),
-                2 => (1.1, [0.75, 1.0, 1.0, 1.0]),  // Cyan-silver tint, 1.1x scale
+                2 => (1.1, [0.75, 1.0, 1.0, 1.0]), // Cyan-silver tint, 1.1x scale
                 3 => (1.2, [1.0, 0.85, 0.3, 1.0]), // Gold tint, 1.2x scale
                 _ => (1.0, [1.0, 1.0, 1.0, 1.0]),
             };
@@ -1093,7 +1149,7 @@ impl State {
                 crate::game::towers::manager::TowerType::Sniper => TILE_WORLD_SIZE * 0.25,
             };
             let scale = base_scale * scale_multiplier;
-            
+
             // BasicTower's rotation is an angle in the XY plane where +X is 0, +Y is PI/2.
             // In 3D, our camera XZ plane maps from 2D XY. So +Y in 2D is +Z in 3D.
             // A rotation of angle around Y axis from +X to +Z is exactly the same as 2D angle (if Y is UP).
@@ -1115,7 +1171,7 @@ impl State {
                 rot_y,
                 tint_color,
             );
-            
+
             let tex_id = self.highlight_texture_id;
             self.batcher.add_model(vertices, tex_id);
         }
@@ -1130,7 +1186,7 @@ impl State {
                     let pos_x = (gx as f32 - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
                     let pos_z = (gy as f32 - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
                     let center_y = tile.grid_y as f32 * TILE_WORLD_SIZE;
-                    
+
                     // Render selected tower highlight box (blue outline)
                     let size = glam::Vec3::splat(TILE_WORLD_SIZE + HIGHLIGHT_INFLATE);
                     self.overlay_batcher.add_highlight_box(
@@ -1139,11 +1195,11 @@ impl State {
                         [0.0, 0.6, 1.0, 0.45], // Blue highlight
                         self.highlight_texture_id,
                     );
-                    
+
                     // Render range indicator circle on the ground
                     let range_radius = tower.get_range();
                     let range_y = center_y + TILE_WORLD_SIZE * 0.5 + 0.01;
-                    
+
                     self.overlay_batcher.add_overlay_circle(
                         glam::Vec3::new(pos_x, range_y, pos_z),
                         range_radius * TILE_WORLD_SIZE,
@@ -1154,23 +1210,22 @@ impl State {
             }
         }
 
-
         // Draw enemies
         for enemy in self.enemy_manager.get_enemies() {
             let pos = enemy.get_position();
             let health = enemy.get_health();
-            
+
             // Convert grid pos to world pos
             let world_x = (pos.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
             let world_z = (pos.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
-            
+
             // Determine Y based on terrain at that grid pos (or just slightly above path level)
             // The path is at grid_y = 0 usually, but let's query the map.
             // Since path positions are continuous, we sample the closest integer tile.
             let gx = pos.x.round() as i32;
             let gy = pos.y.round() as i32;
             let tile_y = self.map.get_tile(gx, gy).map(|t| t.grid_y).unwrap_or(0);
-            
+
             let world_y = tile_y as f32 * TILE_WORLD_SIZE + TILE_WORLD_SIZE * 0.5 + 0.05;
 
             // Frustum Culling (radius includes enemy scale and health bar height offset)
@@ -1204,7 +1259,7 @@ impl State {
             // Draw health bar if damaged and alive
             let max_health = enemy.get_max_health();
             let health_pct = (health / max_health).clamp(0.0, 1.0);
-            
+
             if health_pct < 1.0 && health > 0.0 {
                 // Scale bar dimensions dynamically with camera zoom to keep it readable when zoomed out
                 let scale_factor = (1.0 / self.camera.zoom).sqrt().clamp(1.0, 2.5);
@@ -1280,15 +1335,16 @@ impl State {
             let pos = proj.position;
             let world_x = (pos.x - self.map.width as f32 / 2.0) * TILE_WORLD_SIZE;
             let world_z = (pos.y - self.map.height as f32 / 2.0) * TILE_WORLD_SIZE;
-            
+
             // Interpolate the exact 3D world height from start to target
             let start_gx = proj.start_position.x.round() as i32;
             let start_gy = proj.start_position.y.round() as i32;
             let start_tile_y = self.map.get_tile(start_gx, start_gy).map(|t| t.grid_y).unwrap_or(0);
-            
+
             let target_gx = proj.target_position.x.round() as i32;
             let target_gy = proj.target_position.y.round() as i32;
-            let target_tile_y = self.map.get_tile(target_gx, target_gy).map(|t| t.grid_y).unwrap_or(0);
+            let target_tile_y =
+                self.map.get_tile(target_gx, target_gy).map(|t| t.grid_y).unwrap_or(0);
 
             // A tile's top surface (where towers/enemies sit) is half a cube
             // above its grid_y centre, so every height is measured from
@@ -1297,12 +1353,17 @@ impl State {
             let start_world_y =
                 (start_tile_y as f32 + 0.5 + proj.spawn_height_offset) * TILE_WORLD_SIZE;
             // Aim slightly above the ground to hit the enemy body (not under it).
-            let target_world_y = (target_tile_y as f32 + 0.5) * TILE_WORLD_SIZE + 0.2 * TILE_WORLD_SIZE;
-            
+            let target_world_y =
+                (target_tile_y as f32 + 0.5) * TILE_WORLD_SIZE + 0.2 * TILE_WORLD_SIZE;
+
             let total_dist = proj.start_position.distance(proj.target_position);
             let current_dist = proj.position.distance(proj.target_position);
-            let t = if total_dist > 0.0 { 1.0 - (current_dist / total_dist) } else { 1.0 };
-            
+            let t = if total_dist > 0.0 {
+                1.0 - (current_dist / total_dist)
+            } else {
+                1.0
+            };
+
             let world_y = start_world_y * (1.0 - t) + target_world_y * t;
 
             // Frustum Culling
@@ -1316,9 +1377,9 @@ impl State {
             ) {
                 continue;
             }
-            
+
             // The generated sphere has radius 1.0, so let's scale it to 0.008
-            let scale = 0.008; 
+            let scale = 0.008;
             let vertices = self.projectile_model.generate_vertices(
                 world_pos,
                 scale,
@@ -1356,42 +1417,52 @@ impl State {
         }
 
         // Draw particles with frustum culling
-        self.particles.draw(&mut self.batcher, self.highlight_texture_id, Some((vp, ortho_width, ortho_height)));
+        self.particles.draw(
+            &mut self.batcher,
+            self.highlight_texture_id,
+            Some((vp, ortho_width, ortho_height)),
+        );
 
         // --- Wave/Game Status UI ---
         let (line1, line2, color1, color2) = match self.game_state {
             crate::game::game_state::GameState::MainMenu => (
                 "ISOGUARD".to_string(),
                 "PRESS ENTER TO START".to_string(),
-                [255, 220, 0, 255],     // Yellow/Gold
-                [0, 255, 255, 255],     // Cyan
+                [255, 220, 0, 255], // Yellow/Gold
+                [0, 255, 255, 255], // Cyan
             ),
             crate::game::game_state::GameState::Paused => (
                 "GAME PAUSED".to_string(),
                 "PRESS ESC TO RESUME".to_string(),
-                [255, 120, 0, 255],     // Orange
-                [255, 255, 255, 255],   // White
+                [255, 120, 0, 255],   // Orange
+                [255, 255, 255, 255], // White
             ),
             crate::game::game_state::GameState::GameOver => {
                 let wave_reached = self.wave_manager.current_wave_number();
                 (
                     "GAME OVER!".to_string(),
                     format!("WAVE {} REACHED - PRESS ENTER", wave_reached),
-                    [255, 50, 50, 255],     // Red
-                    [255, 255, 255, 255],   // White
+                    [255, 50, 50, 255],   // Red
+                    [255, 255, 255, 255], // White
                 )
             }
             crate::game::game_state::GameState::Victory => {
-                let stats_line = format!("LIVES:{} GOLD:{}", self.player_stats.lives, self.economy.money);
+                let stats_line = format!(
+                    "LIVES:{} GOLD:{}",
+                    self.player_stats.lives, self.economy.money
+                );
                 (
                     format!("VICTORY!  {}", stats_line),
                     "ENTER:RESTART  SPACE:CONTINUE".to_string(),
-                    [0, 255, 255, 255],     // Cyan
-                    [255, 220, 0, 255],     // Yellow/Gold
+                    [0, 255, 255, 255], // Cyan
+                    [255, 220, 0, 255], // Yellow/Gold
                 )
             }
             crate::game::game_state::GameState::Playing => {
-                let stats_line = format!("LIVES: {}  GOLD: {}", self.player_stats.lives, self.economy.money);
+                let stats_line = format!(
+                    "LIVES: {}  GOLD: {}",
+                    self.player_stats.lives, self.economy.money
+                );
                 match self.wave_manager.state {
                     crate::game::wave_manager::WaveState::NotStarted => (
                         "WAITING TO START".to_string(),
@@ -1399,7 +1470,8 @@ impl State {
                         [255, 220, 0, 255],
                         [255, 255, 255, 255],
                     ),
-                    crate::game::wave_manager::WaveState::Spawning | crate::game::wave_manager::WaveState::WaitingForClean => (
+                    crate::game::wave_manager::WaveState::Spawning
+                    | crate::game::wave_manager::WaveState::WaitingForClean => (
                         format!("WAVE {}", self.wave_manager.current_wave_number()),
                         stats_line,
                         [255, 220, 0, 255],
@@ -1408,7 +1480,10 @@ impl State {
                     crate::game::wave_manager::WaveState::InterWaveDelay => {
                         if self.wave_manager.inter_wave_timer > 7.0 {
                             (
-                                format!("WAVE {} COMPLETE!", self.wave_manager.current_wave_number()),
+                                format!(
+                                    "WAVE {} COMPLETE!",
+                                    self.wave_manager.current_wave_number()
+                                ),
                                 stats_line,
                                 [0, 255, 100, 255],
                                 [255, 255, 255, 255],
@@ -1416,7 +1491,10 @@ impl State {
                         } else {
                             let next_wave = self.wave_manager.current_wave_number() + 1;
                             (
-                                format!("WAVE {} INCOMING: {:.1}S", next_wave, self.wave_manager.inter_wave_timer),
+                                format!(
+                                    "WAVE {} INCOMING: {:.1}S",
+                                    next_wave, self.wave_manager.inter_wave_timer
+                                ),
                                 stats_line,
                                 [255, 120, 0, 255],
                                 [255, 255, 255, 255],
@@ -1604,7 +1682,7 @@ impl State {
                 let max = glam::Vec3::new(pos_x + half, top, pos_z + half);
 
                 if let Some(t) = ray_aabb(origin, dir, min, max) {
-                    if best.map_or(true, |(best_t, _)| t < best_t) {
+                    if best.is_none_or(|(best_t, _)| t < best_t) {
                         best = Some((t, (gx, gz)));
                     }
                 }
@@ -1624,7 +1702,12 @@ impl State {
     /// the map changes (e.g. a wall is placed or a tile is edited); it is not
     /// needed on every frame.
     pub fn rebuild_terrain(&mut self) {
-        build_terrain_mesh(&self.map, &mut self.terrain_batcher, &self.device, &self.queue);
+        build_terrain_mesh(
+            &self.map,
+            &mut self.terrain_batcher,
+            &self.device,
+            &self.queue,
+        );
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -1658,12 +1741,8 @@ impl State {
         )?;
 
         // Draw UI overlays on top of the 3D scene with depth testing disabled.
-        self.renderer.render_ui_batches(
-            &view,
-            &self.device,
-            &self.queue,
-            &[&self.ui_batcher],
-        )?;
+        self.renderer
+            .render_ui_batches(&view, &self.device, &self.queue, &[&self.ui_batcher])?;
 
         // 1. Get raw input from winit and begin frame
         let raw_input = self.egui_state.take_egui_input(&self.window);
@@ -1693,34 +1772,41 @@ impl State {
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.label(egui::RichText::new("❤️").size(22.0));
-                                ui.label(egui::RichText::new(format!("{}", self.player_stats.lives))
-                                    .font(egui::FontId::monospace(18.0))
-                                    .color(egui::Color32::WHITE)
-                                    .strong());
-                                
+                                ui.label(
+                                    egui::RichText::new(format!("{}", self.player_stats.lives))
+                                        .font(egui::FontId::monospace(18.0))
+                                        .color(egui::Color32::WHITE)
+                                        .strong(),
+                                );
+
                                 ui.add_space(12.0);
                                 ui.separator();
                                 ui.add_space(12.0);
-                                
+
                                 ui.label(egui::RichText::new("💰").size(22.0));
-                                ui.label(egui::RichText::new(format!("{}", self.economy.money))
-                                    .font(egui::FontId::monospace(18.0))
-                                    .color(egui::Color32::WHITE)
-                                    .strong());
-                                
+                                ui.label(
+                                    egui::RichText::new(format!("{}", self.economy.money))
+                                        .font(egui::FontId::monospace(18.0))
+                                        .color(egui::Color32::WHITE)
+                                        .strong(),
+                                );
+
                                 ui.add_space(12.0);
                                 ui.separator();
                                 ui.add_space(12.0);
-                                
+
                                 let settings_btn = egui::Button::new(
                                     egui::RichText::new("⚙")
                                         .font(egui::FontId::monospace(18.0))
-                                        .color(egui::Color32::WHITE)
+                                        .color(egui::Color32::WHITE),
                                 )
                                 .fill(egui::Color32::from_rgb(70, 70, 70))
-                                .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(150, 150, 150)))
+                                .stroke(egui::Stroke::new(
+                                    1.5,
+                                    egui::Color32::from_rgb(150, 150, 150),
+                                ))
                                 .min_size(egui::vec2(28.0, 28.0));
-                                
+
                                 if ui.add(settings_btn).clicked() {
                                     self.show_ingame_settings = !self.show_ingame_settings;
                                     self.audio.play_click();
@@ -1741,8 +1827,13 @@ impl State {
                             }
                             txt
                         }
-                        crate::game::wave_manager::WaveState::Spawning | crate::game::wave_manager::WaveState::WaitingForClean => {
-                            let mut txt = format!("Wave {}/{}", self.wave_manager.current_wave_number(), self.wave_manager.waves.len());
+                        crate::game::wave_manager::WaveState::Spawning
+                        | crate::game::wave_manager::WaveState::WaitingForClean => {
+                            let mut txt = format!(
+                                "Wave {}/{}",
+                                self.wave_manager.current_wave_number(),
+                                self.wave_manager.waves.len()
+                            );
                             if self.game_state == crate::game::game_state::GameState::Paused {
                                 txt.push_str(" [PAUSED]");
                             }
@@ -1750,25 +1841,36 @@ impl State {
                         }
                         crate::game::wave_manager::WaveState::InterWaveDelay => {
                             if self.wave_manager.inter_wave_timer > 7.0 {
-                                let mut txt = format!("Wave {} Complete!", self.wave_manager.current_wave_number());
+                                let mut txt = format!(
+                                    "Wave {} Complete!",
+                                    self.wave_manager.current_wave_number()
+                                );
                                 if self.game_state == crate::game::game_state::GameState::Paused {
                                     txt.push_str(" [PAUSED]");
                                 }
                                 txt
                             } else {
                                 let next_wave = self.wave_manager.current_wave_number() + 1;
-                                let mut txt = format!("Wave {} Incoming: {:.1}s", next_wave, self.wave_manager.inter_wave_timer);
+                                let mut txt = format!(
+                                    "Wave {} Incoming: {:.1}s",
+                                    next_wave, self.wave_manager.inter_wave_timer
+                                );
                                 if self.game_state == crate::game::game_state::GameState::Paused {
                                     txt.push_str(" [PAUSED]");
                                 }
                                 txt
                             }
                         }
-                        crate::game::wave_manager::WaveState::CompletedAll => "Victory!".to_string(),
+                        crate::game::wave_manager::WaveState::CompletedAll => {
+                            "Victory!".to_string()
+                        }
                     };
                     let border_color = match self.wave_manager.state {
-                        crate::game::wave_manager::WaveState::NotStarted => egui::Color32::from_rgb(0, 180, 255),
-                        crate::game::wave_manager::WaveState::Spawning | crate::game::wave_manager::WaveState::WaitingForClean => {
+                        crate::game::wave_manager::WaveState::NotStarted => {
+                            egui::Color32::from_rgb(0, 180, 255)
+                        }
+                        crate::game::wave_manager::WaveState::Spawning
+                        | crate::game::wave_manager::WaveState::WaitingForClean => {
                             egui::Color32::from_rgb(0, 255, 100)
                         }
                         crate::game::wave_manager::WaveState::InterWaveDelay => {
@@ -1778,7 +1880,9 @@ impl State {
                                 egui::Color32::from_rgb(255, 120, 0)
                             }
                         }
-                        crate::game::wave_manager::WaveState::CompletedAll => egui::Color32::from_rgb(0, 255, 255),
+                        crate::game::wave_manager::WaveState::CompletedAll => {
+                            egui::Color32::from_rgb(0, 255, 255)
+                        }
                     };
 
                     egui::Frame::NONE
@@ -1789,10 +1893,12 @@ impl State {
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.label(egui::RichText::new("⚔️").size(24.0));
-                                ui.label(egui::RichText::new(wave_text)
-                                    .font(egui::FontId::monospace(20.0))
-                                    .color(egui::Color32::WHITE)
-                                    .strong());
+                                ui.label(
+                                    egui::RichText::new(wave_text)
+                                        .font(egui::FontId::monospace(20.0))
+                                        .color(egui::Color32::WHITE)
+                                        .strong(),
+                                );
                             });
                         });
                 });
@@ -1801,7 +1907,7 @@ impl State {
             let panel_width = 360.0;
             let slide_distance = panel_width;
             let offset_x = -slide_distance + (self.store_animation * slide_distance);
-            
+
             if self.store_animation > 0.0 {
                 egui::Area::new(egui::Id::new("hud_shop"))
                     .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(offset_x, 0.0)) // Flat on bottom!
@@ -1821,25 +1927,25 @@ impl State {
                                             .strong()
                                     );
                                     ui.add_space(8.0);
-                                    
+
                                     ui.horizontal(|ui| {
                                         // 1. Basic Tower Button
                                         let basic_selected = self.selected_tower_type == crate::game::towers::manager::TowerType::Basic;
                                         let basic_cost = crate::game::towers::manager::TowerType::Basic.cost();
                                         let can_afford_basic = self.economy.money >= basic_cost;
-                                        
+
                                         let basic_border = if basic_selected {
                                             egui::Stroke::new(3.0, egui::Color32::from_rgb(0, 255, 100))
                                         } else {
                                             egui::Stroke::new(1.5, egui::Color32::GRAY)
                                         };
-                                        
+
                                         let basic_bg = if basic_selected {
                                             egui::Color32::from_rgb(20, 50, 30)
                                         } else {
                                             egui::Color32::from_black_alpha(100)
                                         };
-                                        
+
                                         let basic_btn = egui::Button::new(
                                             egui::RichText::new(format!("🏹 Basic Tower\nCost: {}g", basic_cost))
                                                 .font(egui::FontId::monospace(15.0))
@@ -1849,32 +1955,32 @@ impl State {
                                         .fill(basic_bg)
                                         .stroke(basic_border)
                                         .min_size(egui::vec2(160.0, 48.0));
-                                        
+
                                         if ui.add(basic_btn).on_hover_text("Range: 5.0 | DPS: 25.0\nStandard general-purpose defensive tower.").clicked() {
                                             self.selected_tower_type = crate::game::towers::manager::TowerType::Basic;
                                             self.audio.play_click();
                                             log::info!("Selected Basic Tower for placement");
                                         }
-                                        
+
                                         ui.add_space(16.0);
-                                        
+
                                         // 2. Sniper Tower Button
                                         let sniper_selected = self.selected_tower_type == crate::game::towers::manager::TowerType::Sniper;
                                         let sniper_cost = crate::game::towers::manager::TowerType::Sniper.cost();
                                         let can_afford_sniper = self.economy.money >= sniper_cost;
-                                        
+
                                         let sniper_border = if sniper_selected {
                                             egui::Stroke::new(3.0, egui::Color32::from_rgb(0, 255, 100))
                                         } else {
                                             egui::Stroke::new(1.5, egui::Color32::GRAY)
                                         };
-                                        
+
                                         let sniper_bg = if sniper_selected {
                                             egui::Color32::from_rgb(20, 50, 30)
                                         } else {
                                             egui::Color32::from_black_alpha(100)
                                         };
-                                        
+
                                         let sniper_btn = egui::Button::new(
                                             egui::RichText::new(format!("🎯 Sniper Tower\nCost: {}g", sniper_cost))
                                                 .font(egui::FontId::monospace(15.0))
@@ -1884,7 +1990,7 @@ impl State {
                                         .fill(sniper_bg)
                                         .stroke(sniper_border)
                                         .min_size(egui::vec2(160.0, 48.0));
-                                        
+
                                         if ui.add(sniper_btn).on_hover_text("Range: 12.0 | Damage: 100.0\nSlow firing rate, but deals heavy damage over long distances.").clicked() {
                                             self.selected_tower_type = crate::game::towers::manager::TowerType::Sniper;
                                             self.audio.play_click();
@@ -1907,15 +2013,19 @@ impl State {
                         .stroke(egui::Stroke::new(3.0, egui::Color32::from_rgb(215, 115, 0))) // Blocky orange border
                         .inner_margin(8.0)
                         .show(ui, |ui| {
-                            let text = if self.store_open { "◀ Shop" } else { "🛒 Shop" };
+                            let text = if self.store_open {
+                                "◀ Shop"
+                            } else {
+                                "🛒 Shop"
+                            };
                             let toggle_btn = egui::Button::new(
                                 egui::RichText::new(text)
                                     .font(egui::FontId::monospace(16.0))
                                     .color(egui::Color32::WHITE)
-                                    .strong()
+                                    .strong(),
                             )
                             .fill(egui::Color32::TRANSPARENT);
-                            
+
                             if ui.add(toggle_btn).clicked() {
                                 self.store_open = !self.store_open;
                                 self.audio.play_click();
@@ -1935,7 +2045,8 @@ impl State {
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 // 1. Pause button
-                                let is_paused = self.game_state == crate::game::game_state::GameState::Paused;
+                                let is_paused =
+                                    self.game_state == crate::game::game_state::GameState::Paused;
                                 let pause_border = if is_paused {
                                     egui::Stroke::new(2.5, egui::Color32::from_rgb(0, 255, 100))
                                 } else {
@@ -1947,26 +2058,32 @@ impl State {
                                     egui::Color32::from_black_alpha(100)
                                 };
                                 let pause_btn = egui::Button::new(
-                                    egui::RichText::new(if is_paused { "▶ Resume" } else { "⏸ Pause" })
-                                        .font(egui::FontId::monospace(14.0))
-                                        .color(egui::Color32::WHITE)
-                                        .strong()
+                                    egui::RichText::new(if is_paused {
+                                        "▶ Resume"
+                                    } else {
+                                        "⏸ Pause"
+                                    })
+                                    .font(egui::FontId::monospace(14.0))
+                                    .color(egui::Color32::WHITE)
+                                    .strong(),
                                 )
                                 .fill(pause_bg)
                                 .stroke(pause_border)
                                 .min_size(egui::vec2(80.0, 32.0));
-                                
+
                                 if ui.add(pause_btn).clicked() {
                                     self.audio.play_click();
                                     if is_paused {
-                                        self.game_state = crate::game::game_state::GameState::Playing;
+                                        self.game_state =
+                                            crate::game::game_state::GameState::Playing;
                                     } else {
-                                        self.game_state = crate::game::game_state::GameState::Paused;
+                                        self.game_state =
+                                            crate::game::game_state::GameState::Paused;
                                     }
                                 }
-                                
+
                                 ui.add_space(8.0);
-                                
+
                                 // 2. 0.5x Slow button
                                 let is_slow = !is_paused && self.time.speed_multiplier == 0.5;
                                 let slow_border = if is_slow {
@@ -1983,20 +2100,20 @@ impl State {
                                     egui::RichText::new("🐢 0.5x")
                                         .font(egui::FontId::monospace(14.0))
                                         .color(egui::Color32::WHITE)
-                                        .strong()
+                                        .strong(),
                                 )
                                 .fill(slow_bg)
                                 .stroke(slow_border)
                                 .min_size(egui::vec2(60.0, 32.0));
-                                
+
                                 if ui.add(slow_btn).clicked() {
                                     self.audio.play_click();
                                     self.game_state = crate::game::game_state::GameState::Playing;
                                     self.time.speed_multiplier = 0.5;
                                 }
-                                
+
                                 ui.add_space(4.0);
-                                
+
                                 // 3. 1.0x Normal button
                                 let is_normal = !is_paused && self.time.speed_multiplier == 1.0;
                                 let normal_border = if is_normal {
@@ -2013,20 +2130,20 @@ impl State {
                                     egui::RichText::new("▶ 1.0x")
                                         .font(egui::FontId::monospace(14.0))
                                         .color(egui::Color32::WHITE)
-                                        .strong()
+                                        .strong(),
                                 )
                                 .fill(normal_bg)
                                 .stroke(normal_border)
                                 .min_size(egui::vec2(60.0, 32.0));
-                                
+
                                 if ui.add(normal_btn).clicked() {
                                     self.audio.play_click();
                                     self.game_state = crate::game::game_state::GameState::Playing;
                                     self.time.speed_multiplier = 1.0;
                                 }
-                                
+
                                 ui.add_space(4.0);
-                                
+
                                 // 4. 2.0x Fast button
                                 let is_fast = !is_paused && self.time.speed_multiplier == 2.0;
                                 let fast_border = if is_fast {
@@ -2043,12 +2160,12 @@ impl State {
                                     egui::RichText::new("⚡ 2.0x")
                                         .font(egui::FontId::monospace(14.0))
                                         .color(egui::Color32::WHITE)
-                                        .strong()
+                                        .strong(),
                                 )
                                 .fill(fast_bg)
                                 .stroke(fast_border)
                                 .min_size(egui::vec2(60.0, 32.0));
-                                
+
                                 if ui.add(fast_btn).clicked() {
                                     self.audio.play_click();
                                     self.game_state = crate::game::game_state::GameState::Playing;
@@ -2075,7 +2192,7 @@ impl State {
                                 egui::RichText::new(msg)
                                     .font(egui::FontId::proportional(16.0))
                                     .color(egui::Color32::WHITE)
-                                    .strong()
+                                    .strong(),
                             );
                         });
                 });
@@ -2084,7 +2201,7 @@ impl State {
         // Draw Selected Tower Info / Upgrade Panel (right-center)
         let mut upgrade_triggered = false;
         let mut close_triggered = false;
-        
+
         if self.game_state == crate::game::game_state::GameState::Playing
             || self.game_state == crate::game::game_state::GameState::Paused
         {
@@ -2095,7 +2212,7 @@ impl State {
                     let current_damage = tower.get_damage();
                     let current_range = tower.get_range();
                     let current_fire_rate = tower.get_fire_rate();
-                    
+
                     let (can_upgrade, upgrade_cost) = if level < 3 {
                         if let Some(cost) = tower.get_upgrade_cost() {
                             (true, cost)
@@ -2113,7 +2230,10 @@ impl State {
                             egui::Frame::NONE
                                 .fill(egui::Color32::from_black_alpha(200))
                                 .corner_radius(12.0)
-                                .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(0, 180, 255)))
+                                .stroke(egui::Stroke::new(
+                                    2.0,
+                                    egui::Color32::from_rgb(0, 180, 255),
+                                ))
                                 .inner_margin(16.0)
                                 .show(ui, |ui| {
                                     ui.set_max_width(260.0);
@@ -2122,29 +2242,39 @@ impl State {
                                             egui::RichText::new("🏰 SELECTED TOWER")
                                                 .font(egui::FontId::proportional(16.0))
                                                 .color(egui::Color32::from_rgb(0, 180, 255))
-                                                .strong()
+                                                .strong(),
                                         );
                                         ui.add_space(8.0);
-                                        
+
                                         ui.label(
-                                            egui::RichText::new(format!("{:?} (Level {})", tower_type, level))
-                                                .font(egui::FontId::proportional(18.0))
-                                                .color(egui::Color32::WHITE)
-                                                .strong()
+                                            egui::RichText::new(format!(
+                                                "{:?} (Level {})",
+                                                tower_type, level
+                                            ))
+                                            .font(egui::FontId::proportional(18.0))
+                                            .color(egui::Color32::WHITE)
+                                            .strong(),
                                         );
-                                        
+
                                         ui.add_space(8.0);
                                         ui.separator();
                                         ui.add_space(8.0);
-                                        
+
                                         // Current Stats
-                                        ui.label(egui::RichText::new("Current Stats:").strong().color(egui::Color32::LIGHT_GRAY));
+                                        ui.label(
+                                            egui::RichText::new("Current Stats:")
+                                                .strong()
+                                                .color(egui::Color32::LIGHT_GRAY),
+                                        );
                                         ui.label(format!("• Damage: {}", current_damage));
                                         ui.label(format!("• Range: {:.1}", current_range));
-                                        ui.label(format!("• Attack Speed: {:.2}/s", current_fire_rate));
-                                        
+                                        ui.label(format!(
+                                            "• Attack Speed: {:.2}/s",
+                                            current_fire_rate
+                                        ));
+
                                         ui.add_space(12.0);
-                                        
+
                                         if can_upgrade {
                                             // Stats after upgrade
                                             let next_lvl = level + 1;
@@ -2154,32 +2284,64 @@ impl State {
                                                 _ => (0.0, 0.0),
                                             };
                                             let base_dmg = match tower_type {
-                                                crate::game::towers::manager::TowerType::Basic => 25.0,
-                                                crate::game::towers::manager::TowerType::Sniper => 100.0,
+                                                crate::game::towers::manager::TowerType::Basic => {
+                                                    25.0
+                                                }
+                                                crate::game::towers::manager::TowerType::Sniper => {
+                                                    100.0
+                                                }
                                             };
                                             let base_rng = match tower_type {
-                                                crate::game::towers::manager::TowerType::Basic => 5.0,
-                                                crate::game::towers::manager::TowerType::Sniper => 12.0,
+                                                crate::game::towers::manager::TowerType::Basic => {
+                                                    5.0
+                                                }
+                                                crate::game::towers::manager::TowerType::Sniper => {
+                                                    12.0
+                                                }
                                             };
                                             let next_damage = base_dmg * (1.0 + dmg_inc);
                                             let next_range = base_rng * (1.0 + rng_inc);
 
-                                            ui.label(egui::RichText::new("Next Level Stats:").strong().color(egui::Color32::from_rgb(0, 255, 100)));
-                                            ui.label(format!("• Damage: {} ( +{} )", next_damage, next_damage - current_damage));
-                                            ui.label(format!("• Range: {:.1} ( +{:.1} )", next_range, next_range - current_range));
-                                            
+                                            ui.label(
+                                                egui::RichText::new("Next Level Stats:")
+                                                    .strong()
+                                                    .color(egui::Color32::from_rgb(0, 255, 100)),
+                                            );
+                                            ui.label(format!(
+                                                "• Damage: {} ( +{} )",
+                                                next_damage,
+                                                next_damage - current_damage
+                                            ));
+                                            ui.label(format!(
+                                                "• Range: {:.1} ( +{:.1} )",
+                                                next_range,
+                                                next_range - current_range
+                                            ));
+
                                             ui.add_space(16.0);
-                                            
-                                            let upgrade_text = format!("✨ Upgrade ({}g)", upgrade_cost);
+
+                                            let upgrade_text =
+                                                format!("✨ Upgrade ({}g)", upgrade_cost);
                                             let upgrade_btn = egui::Button::new(
                                                 egui::RichText::new(upgrade_text)
                                                     .font(egui::FontId::proportional(16.0))
                                                     .color(egui::Color32::WHITE)
-                                                    .strong()
+                                                    .strong(),
                                             )
-                                            .fill(if can_afford_upgrade { egui::Color32::from_rgb(46, 125, 50) } else { egui::Color32::from_rgb(120, 40, 40) })
-                                            .stroke(egui::Stroke::new(1.5, if can_afford_upgrade { egui::Color32::from_rgb(102, 187, 106) } else { egui::Color32::from_rgb(200, 100, 100) }));
-                                            
+                                            .fill(if can_afford_upgrade {
+                                                egui::Color32::from_rgb(46, 125, 50)
+                                            } else {
+                                                egui::Color32::from_rgb(120, 40, 40)
+                                            })
+                                            .stroke(egui::Stroke::new(
+                                                1.5,
+                                                if can_afford_upgrade {
+                                                    egui::Color32::from_rgb(102, 187, 106)
+                                                } else {
+                                                    egui::Color32::from_rgb(200, 100, 100)
+                                                },
+                                            ));
+
                                             let response = ui.add_sized([220.0, 40.0], upgrade_btn);
                                             if !can_afford_upgrade {
                                                 response.on_hover_text("Insufficient gold!");
@@ -2192,21 +2354,21 @@ impl State {
                                                 egui::RichText::new("⭐ MAX LEVEL REACHED")
                                                     .font(egui::FontId::proportional(14.0))
                                                     .color(egui::Color32::from_rgb(255, 220, 0))
-                                                    .strong()
+                                                    .strong(),
                                             );
                                         }
-                                        
+
                                         ui.add_space(12.0);
-                                        
+
                                         // Close button
                                         let close_btn = egui::Button::new(
                                             egui::RichText::new("Close")
                                                 .font(egui::FontId::proportional(14.0))
-                                                .color(egui::Color32::WHITE)
+                                                .color(egui::Color32::WHITE),
                                         )
                                         .fill(egui::Color32::from_black_alpha(100))
                                         .stroke(egui::Stroke::new(1.0, egui::Color32::GRAY));
-                                        
+
                                         if ui.add_sized([220.0, 28.0], close_btn).clicked() {
                                             close_triggered = true;
                                             self.audio.play_click();
@@ -2224,12 +2386,15 @@ impl State {
                     let tower_type = tower.tower_type();
                     let current_level = tower.get_level();
                     if let Some(cost) = tower.get_upgrade_cost() {
-                        if self.economy.purchase(cost) {
-                            if let Ok(_) = tower.upgrade() {
-                                self.placement_status = format!("Upgraded {:?} to Level {}", tower_type, current_level + 1);
-                                self.update_window_title();
-                                log::info!("Upgraded tower at index {} to level {}", idx, current_level + 1);
-                            }
+                        if self.economy.purchase(cost) && tower.upgrade().is_ok() {
+                            self.placement_status =
+                                format!("Upgraded {:?} to Level {}", tower_type, current_level + 1);
+                            self.update_window_title();
+                            log::info!(
+                                "Upgraded tower at index {} to level {}",
+                                idx,
+                                current_level + 1
+                            );
                         }
                     }
                 }
@@ -2254,92 +2419,117 @@ impl State {
                 .show(&egui_ctx, |ui| {
                     ui.set_width(280.0);
                     ui.add_space(8.0);
-                    
+
                     // SFX Volume Slider
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("🔊 SFX Vol:").color(egui::Color32::WHITE).font(egui::FontId::monospace(14.0)));
+                        ui.label(
+                            egui::RichText::new("🔊 SFX Vol:")
+                                .color(egui::Color32::WHITE)
+                                .font(egui::FontId::monospace(14.0)),
+                        );
                         let mut sfx_vol = self.audio.get_volume();
                         if ui.add(egui::Slider::new(&mut sfx_vol, 0.0..=1.0)).changed() {
                             self.audio.set_volume(sfx_vol);
                         }
                     });
-                    
+
                     ui.add_space(8.0);
-                    
+
                     // Music Volume Slider
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("🎵 Music Vol:").color(egui::Color32::WHITE).font(egui::FontId::monospace(14.0)));
+                        ui.label(
+                            egui::RichText::new("🎵 Music Vol:")
+                                .color(egui::Color32::WHITE)
+                                .font(egui::FontId::monospace(14.0)),
+                        );
                         let mut music_vol = self.audio.get_music_volume();
                         if ui.add(egui::Slider::new(&mut music_vol, 0.0..=1.0)).changed() {
                             self.audio.set_music_volume(music_vol);
                         }
                     });
-                    
+
                     ui.add_space(8.0);
-                    
+
                     // Music Mute Checkbox
                     let mut music_muted = self.audio.get_music_muted();
-                    if ui.checkbox(&mut music_muted, egui::RichText::new("Mute Music").color(egui::Color32::WHITE).font(egui::FontId::monospace(14.0))).changed() {
+                    if ui
+                        .checkbox(
+                            &mut music_muted,
+                            egui::RichText::new("Mute Music")
+                                .color(egui::Color32::WHITE)
+                                .font(egui::FontId::monospace(14.0)),
+                        )
+                        .changed()
+                    {
                         self.audio.set_music_muted(music_muted);
                         self.audio.play_click();
                     }
-                    
+
                     ui.add_space(16.0);
                     ui.separator();
                     ui.add_space(16.0);
-                    
+
                     let btn_width = 240.0;
                     let btn_height = 32.0;
-                    
+
                     // Restart button
                     let restart_btn = egui::Button::new(
                         egui::RichText::new("🔄  Restart Game")
                             .font(egui::FontId::monospace(14.0))
                             .color(egui::Color32::WHITE)
-                            .strong()
+                            .strong(),
                     )
                     .fill(egui::Color32::from_rgb(21, 101, 192))
-                    .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(100, 181, 246)));
-                    
+                    .stroke(egui::Stroke::new(
+                        1.5,
+                        egui::Color32::from_rgb(100, 181, 246),
+                    ));
+
                     if ui.add_sized([btn_width, btn_height], restart_btn).clicked() {
                         self.start_game();
                         self.audio.play_click();
                         self.show_ingame_settings = false;
                         log::info!("Restarted game via in-game Settings");
                     }
-                    
+
                     ui.add_space(8.0);
-                    
+
                     // Save Game button
                     let save_btn = egui::Button::new(
                         egui::RichText::new("💾  Save Game")
                             .font(egui::FontId::monospace(14.0))
                             .color(egui::Color32::WHITE)
-                            .strong()
+                            .strong(),
                     )
                     .fill(egui::Color32::from_rgb(136, 14, 79))
-                    .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(244, 143, 177)));
-                    
+                    .stroke(egui::Stroke::new(
+                        1.5,
+                        egui::Color32::from_rgb(244, 143, 177),
+                    ));
+
                     if ui.add_sized([btn_width, btn_height], save_btn).clicked() {
                         if let Err(e) = self.save_game() {
                             self.save_feedback = Some((format!("Save failed: {}", e), 3.0));
                         }
                         self.audio.play_click();
                     }
-                    
+
                     ui.add_space(8.0);
-                    
+
                     // Load Game button
                     let save_exists = std::path::Path::new("isoguard_save.json").exists();
                     ui.add_enabled_ui(save_exists, |ui| {
                         let load_btn = egui::Button::new(
                             egui::RichText::new("📂  Load Game")
                                 .font(egui::FontId::monospace(14.0))
-                                .strong()
+                                .strong(),
                         )
                         .fill(egui::Color32::from_rgb(74, 20, 140))
-                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(186, 104, 200)));
-                        
+                        .stroke(egui::Stroke::new(
+                            1.5,
+                            egui::Color32::from_rgb(186, 104, 200),
+                        ));
+
                         if ui.add_sized([btn_width, btn_height], load_btn).clicked() {
                             if let Err(e) = self.load_game() {
                                 self.save_feedback = Some((format!("Load failed: {}", e), 3.0));
@@ -2350,19 +2540,19 @@ impl State {
                             self.audio.play_click();
                         }
                     });
-                    
+
                     ui.add_space(8.0);
-                    
+
                     // Quit to Main Menu button
                     let quit_btn = egui::Button::new(
                         egui::RichText::new("🚪  Exit to Main Menu")
                             .font(egui::FontId::monospace(14.0))
                             .color(egui::Color32::WHITE)
-                            .strong()
+                            .strong(),
                     )
                     .fill(egui::Color32::from_rgb(198, 40, 40))
                     .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(239, 83, 80)));
-                    
+
                     if ui.add_sized([btn_width, btn_height], quit_btn).clicked() {
                         self.game_state = crate::game::game_state::GameState::MainMenu;
                         self.audio.play_click();
@@ -2380,7 +2570,7 @@ impl State {
         // Draw Main Menu if in GameState::MainMenu
         if self.game_state == crate::game::game_state::GameState::MainMenu {
             let egui_ctx = self.egui_ctx.clone();
-            
+
             if self.show_level_select {
                 // Horizontal Scroll Map Level Selection
                 struct LevelInfo {
@@ -2398,8 +2588,7 @@ impl State {
 
                 let save = crate::game::progress::SaveData::load();
 
-                let levels = vec![
-                    LevelInfo {
+                let levels = [LevelInfo {
                         name: "Whispering Woods",
                         difficulty: "EASY",
                         biome: "Grasslands",
@@ -2513,17 +2702,31 @@ impl State {
                             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
                         ],
-                    },
-                ];
+                    }];
 
                 let selected_idx = self.selected_level_point.unwrap_or(0).min(levels.len() - 1);
 
                 let (theme_bg, theme_accent) = match selected_idx {
-                    0 => (egui::Color32::from_rgb(10, 35, 15), egui::Color32::from_rgb(0, 230, 115)),
-                    1 => (egui::Color32::from_rgb(45, 30, 10), egui::Color32::from_rgb(255, 170, 0)),
-                    2 => (egui::Color32::from_rgb(10, 25, 45), egui::Color32::from_rgb(0, 191, 255)),
-                    3 => (egui::Color32::from_rgb(35, 10, 10), egui::Color32::from_rgb(255, 64, 64)),
-                    _ => (egui::Color32::from_rgb(25, 10, 40), egui::Color32::from_rgb(224, 64, 251)),
+                    0 => (
+                        egui::Color32::from_rgb(10, 35, 15),
+                        egui::Color32::from_rgb(0, 230, 115),
+                    ),
+                    1 => (
+                        egui::Color32::from_rgb(45, 30, 10),
+                        egui::Color32::from_rgb(255, 170, 0),
+                    ),
+                    2 => (
+                        egui::Color32::from_rgb(10, 25, 45),
+                        egui::Color32::from_rgb(0, 191, 255),
+                    ),
+                    3 => (
+                        egui::Color32::from_rgb(35, 10, 10),
+                        egui::Color32::from_rgb(255, 64, 64),
+                    ),
+                    _ => (
+                        egui::Color32::from_rgb(25, 10, 40),
+                        egui::Color32::from_rgb(224, 64, 251),
+                    ),
                 };
 
                 egui::Area::new(egui::Id::new("hud_level_select"))
@@ -2565,7 +2768,7 @@ impl State {
                                                     ui.set_height(340.0);
                                                     // Scroll Area
                                                     egui::ScrollArea::horizontal()
-                                                        .id_source("level_scroll")
+                                                        .id_salt("level_scroll")
                                                         .max_height(340.0)
                                                         .show(ui, |ui| {
                                                             let width = 1600.0;
@@ -2574,39 +2777,39 @@ impl State {
                                                                 egui::vec2(width, height),
                                                                 egui::Sense::click_and_drag(),
                                                             );
-                                                            
+
                                                             let painter = ui.painter_at(rect);
-                                                            
+
                                                             // Interpolate and paint the background biomes
                                                             let segments = 20;
                                                             let seg_width = width / segments as f32;
-                                                            let biome_colors = vec![
+                                                            let biome_colors = [
                                                                 egui::Color32::from_rgb(10, 45, 20),   // Grasslands
                                                                 egui::Color32::from_rgb(55, 40, 15),   // Desert
                                                                 egui::Color32::from_rgb(15, 30, 60),   // Tundra
                                                                 egui::Color32::from_rgb(45, 15, 15),   // Volcanic
                                                                 egui::Color32::from_rgb(25, 10, 45),   // Cosmic
                                                             ];
-                                                            
+
                                                             for s in 0..segments {
                                                                 let x_min = rect.min.x + s as f32 * seg_width;
                                                                 let x_max = x_min + seg_width;
-                                                                
+
                                                                 let pos_pct = s as f32 / (segments - 1) as f32;
                                                                 let float_idx = pos_pct * (biome_colors.len() - 1) as f32;
                                                                 let idx_lower = float_idx.floor() as usize;
                                                                 let idx_upper = float_idx.ceil() as usize;
                                                                 let t = float_idx - idx_lower as f32;
-                                                                
+
                                                                 let col_lower = biome_colors[idx_lower];
                                                                 let col_upper = biome_colors[idx_upper];
-                                                                
+
                                                                 let col = egui::Color32::from_rgb(
                                                                     (col_lower.r() as f32 + (col_upper.r() as f32 - col_lower.r() as f32) * t) as u8,
                                                                     (col_lower.g() as f32 + (col_upper.g() as f32 - col_lower.g() as f32) * t) as u8,
                                                                     (col_lower.b() as f32 + (col_upper.b() as f32 - col_lower.b() as f32) * t) as u8,
                                                                 );
-                                                                
+
                                                                 painter.rect_filled(
                                                                     egui::Rect::from_min_max(
                                                                         egui::pos2(x_min, rect.min.y),
@@ -2616,7 +2819,7 @@ impl State {
                                                                     col,
                                                                 );
                                                             }
-                                                            
+
                                                             // Draw subtle grid lines
                                                             for x in (100..1600).step_by(100) {
                                                                 painter.line_segment(
@@ -2627,16 +2830,14 @@ impl State {
                                                                     egui::Stroke::new(1.0, egui::Color32::from_white_alpha(10)),
                                                                 );
                                                             }
-                                                            
+
                                                             // Coordinates for the 5 level points
-                                                            let points = vec![
-                                                                egui::pos2(rect.min.x + 160.0, rect.min.y + 150.0),
+                                                            let points = [egui::pos2(rect.min.x + 160.0, rect.min.y + 150.0),
                                                                 egui::pos2(rect.min.x + 480.0, rect.min.y + 90.0),
                                                                 egui::pos2(rect.min.x + 800.0, rect.min.y + 210.0),
                                                                 egui::pos2(rect.min.x + 1120.0, rect.min.y + 100.0),
-                                                                egui::pos2(rect.min.x + 1440.0, rect.min.y + 160.0),
-                                                            ];
-                                                            
+                                                                egui::pos2(rect.min.x + 1440.0, rect.min.y + 160.0)];
+
                                                             // Draw the curved dotted connecting path using a cubic Bezier curve
                                                             let cubic_bezier = |t: f32, p0: egui::Pos2, p1: egui::Pos2, p2: egui::Pos2, p3: egui::Pos2| -> egui::Pos2 {
                                                                 let u = 1.0 - t;
@@ -2650,7 +2851,7 @@ impl State {
                                                                 )
                                                             };
 
-                                                            let dot_colors = vec![
+                                                            let dot_colors = [
                                                                 egui::Color32::from_rgb(120, 240, 160), // Grasslands
                                                                 egui::Color32::from_rgb(255, 200, 100), // Desert
                                                                 egui::Color32::from_rgb(150, 220, 255), // Tundra
@@ -2689,23 +2890,23 @@ impl State {
                                                                     painter.circle_filled(pos, 2.0, dot_color);
                                                                 }
                                                             }
-                                                            
+
                                                             // Render the interactive nodes
                                                             for (i, lvl) in levels.iter().enumerate() {
                                                                 let pt = points[i];
-                                                                
+
                                                                 let node_size = 50.0;
                                                                 let node_rect = egui::Rect::from_center_size(pt, egui::vec2(node_size, node_size));
                                                                 let node_resp = ui.allocate_rect(node_rect, egui::Sense::click());
-                                                                
+
                                                                 if node_resp.clicked() {
                                                                     self.selected_level_point = Some(i);
                                                                     self.audio.play_click();
                                                                 }
-                                                                
+
                                                                 let is_selected = selected_idx == i;
                                                                 let is_hovered = node_resp.hovered();
-                                                                
+
                                                                 let (glow_color, node_bg, border_color) = if !lvl.unlocked {
                                                                     (
                                                                         egui::Color32::from_rgb(80, 20, 20),
@@ -2731,27 +2932,27 @@ impl State {
                                                                         egui::Color32::from_rgb(180, 180, 180)
                                                                     )
                                                                 };
-                                                                
+
                                                                 let glow_radius = if is_selected { 26.0 } else if is_hovered { 22.0 } else { 18.0 };
                                                                 painter.circle_filled(
                                                                     pt,
                                                                     glow_radius,
                                                                     egui::Color32::from_rgba_unmultiplied(glow_color.r(), glow_color.g(), glow_color.b(), 60),
                                                                 );
-                                                                
+
                                                                 painter.circle(
                                                                     pt,
                                                                     16.0,
                                                                     node_bg,
                                                                     egui::Stroke::new(2.0, border_color),
                                                                 );
-                                                                
+
                                                                 let node_text = if !lvl.unlocked {
                                                                     "🔒".to_string()
                                                                 } else {
                                                                     lvl.biome_emoji.to_string()
                                                                 };
-                                                                
+
                                                                 painter.text(
                                                                     pt + egui::vec2(0.0, 1.0),
                                                                     egui::Align2::CENTER_CENTER,
@@ -2759,10 +2960,10 @@ impl State {
                                                                     egui::FontId::proportional(16.0),
                                                                     egui::Color32::WHITE,
                                                                 );
-                                                                
+
                                                                 let text_offset = if i % 2 == 0 { -32.0 } else { 32.0 };
                                                                 let text_color = if is_selected { theme_accent } else if is_hovered { egui::Color32::WHITE } else { egui::Color32::GRAY };
-                                                                
+
                                                                 painter.text(
                                                                     pt + egui::vec2(0.0, text_offset),
                                                                     egui::Align2::CENTER_CENTER,
@@ -2774,7 +2975,7 @@ impl State {
                                                         });
                                                 });
                                         });
-                                        
+
                                         ui.add_space(16.0);
 
                                         // Right Area: Details Panel
@@ -2809,17 +3010,17 @@ impl State {
                                                                 );
                                                             });
                                                         });
-                                                        
+
                                                         ui.add_space(8.0);
                                                         ui.separator();
                                                         ui.add_space(8.0);
-                                                        
+
                                                         ui.vertical_centered(|ui| {
                                                             draw_minimap_preview(ui, &selected_level.grid);
                                                         });
-                                                        
+
                                                         ui.add_space(8.0);
-                                                        
+
                                                         ui.horizontal(|ui| {
                                                             ui.label(
                                                                 egui::RichText::new("DIFFICULTY:")
@@ -2840,7 +3041,7 @@ impl State {
                                                                     .strong()
                                                             );
                                                         });
-                                                        
+
                                                         if selected_level.map_id != "procedural" && selected_level.map_id != "volcanic" {
                                                             ui.horizontal(|ui| {
                                                                 ui.label(
@@ -2855,7 +3056,7 @@ impl State {
                                                                         .strong()
                                                                 );
                                                             });
-                                                            
+
                                                             ui.horizontal(|ui| {
                                                                 ui.label(
                                                                     egui::RichText::new("STATUS:")
@@ -2921,17 +3122,17 @@ impl State {
                                                                 );
                                                             });
                                                         }
-                                                        
+
                                                         ui.add_space(8.0);
-                                                        
+
                                                         ui.label(
                                                             egui::RichText::new(selected_level.description)
                                                                 .font(egui::FontId::proportional(11.0))
                                                                 .color(egui::Color32::LIGHT_GRAY)
                                                         );
-                                                        
+
                                                         ui.add_space(14.0);
-                                                        
+
                                                         if !selected_level.unlocked {
                                                             ui.add_enabled_ui(false, |ui| {
                                                                 let _ = ui.add_sized(
@@ -2950,13 +3151,13 @@ impl State {
                                                                 "volcanic" => egui::Color32::from_rgb(183, 28, 28),
                                                                 _ => egui::Color32::from_rgb(21, 101, 192),
                                                             };
-                                                            
+
                                                             let play_btn = egui::Button::new(
                                                                 egui::RichText::new("🚀 LAUNCH MISSION")
                                                                     .font(egui::FontId::proportional(14.0))
                                                                     .strong()
                                                             ).fill(btn_color);
-                                                            
+
                                                             if ui.add_sized([232.0, 32.0], play_btn).clicked() {
                                                                 self.load_level(selected_level.map_id);
                                                                 self.show_level_select = false;
@@ -2967,16 +3168,16 @@ impl State {
                                                 });
                                         });
                                     });
-                                    
+
                                     ui.add_space(20.0);
-                                    
+
                                     ui.vertical_centered(|ui| {
                                         let back_btn = egui::Button::new(
                                             egui::RichText::new("⬅ Back to Main Menu")
                                                 .font(egui::FontId::proportional(14.0))
                                                 .strong()
                                         ).fill(egui::Color32::from_rgb(60, 60, 64));
-                                        
+
                                         if ui.add_sized([240.0, 32.0], back_btn).clicked() {
                                             self.show_level_select = false;
                                             self.audio.play_click();
@@ -3135,7 +3336,7 @@ impl State {
                                                     ui.vertical(|ui| {
                                                         let completed_count = achievements.iter().filter(|&&(_, _, unlocked, _)| unlocked).count();
                                                         let pct = completed_count as f32 / achievements.len() as f32;
-                                                        
+
                                                         ui.horizontal(|ui| {
                                                             ui.label(
                                                                 egui::RichText::new("TACTICAL HONORS")
@@ -3152,7 +3353,7 @@ impl State {
                                                             });
                                                         });
                                                         ui.add_space(8.0);
-                                                        
+
                                                         // Progress Bar
                                                         ui.add(
                                                             egui::ProgressBar::new(pct)
@@ -3215,18 +3416,18 @@ impl State {
                                         egui::RichText::new("ISOGUARD")
                                             .font(egui::FontId::proportional(48.0))
                                             .color(egui::Color32::from_rgb(0, 230, 255))
-                                            .strong()
+                                            .strong(),
                                     );
-                                    
+
                                     ui.label(
                                         egui::RichText::new("ISOMETRIC TOWER DEFENSE")
                                             .font(egui::FontId::proportional(12.0))
                                             .color(egui::Color32::from_rgb(255, 215, 0)) // Gold
-                                            .strong()
+                                            .strong(),
                                     );
-                                    
+
                                     ui.add_space(24.0);
-                                    
+
                                     let btn_width = 240.0;
                                     let btn_height = 40.0;
 
@@ -3236,12 +3437,16 @@ impl State {
                                             egui::RichText::new("▶  Start Game")
                                                 .font(egui::FontId::proportional(18.0))
                                                 .color(egui::Color32::WHITE)
-                                                .strong()
+                                                .strong(),
                                         )
                                         .fill(egui::Color32::from_rgb(46, 125, 50)) // Emerald green
-                                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(102, 187, 106)));
+                                        .stroke(egui::Stroke::new(
+                                            1.5,
+                                            egui::Color32::from_rgb(102, 187, 106),
+                                        ));
 
-                                        if ui.add_sized([btn_width, btn_height], play_btn).clicked() {
+                                        if ui.add_sized([btn_width, btn_height], play_btn).clicked()
+                                        {
                                             self.show_level_select = true;
                                             self.audio.play_click();
                                         }
@@ -3249,19 +3454,27 @@ impl State {
                                         ui.add_space(16.0);
 
                                         // Continue Game Button (loads from save file)
-                                        let save_exists = std::path::Path::new("isoguard_save.json").exists();
+                                        let save_exists =
+                                            std::path::Path::new("isoguard_save.json").exists();
                                         ui.add_enabled_ui(save_exists, |ui| {
                                             let continue_btn = egui::Button::new(
                                                 egui::RichText::new("📂  Continue Game")
                                                     .font(egui::FontId::proportional(18.0))
-                                                    .strong()
+                                                    .strong(),
                                             )
                                             .fill(egui::Color32::from_rgb(74, 20, 140)) // Sleek Purple
-                                            .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(186, 104, 200)));
+                                            .stroke(egui::Stroke::new(
+                                                1.5,
+                                                egui::Color32::from_rgb(186, 104, 200),
+                                            ));
 
-                                            if ui.add_sized([btn_width, btn_height], continue_btn).clicked() {
+                                            if ui
+                                                .add_sized([btn_width, btn_height], continue_btn)
+                                                .clicked()
+                                            {
                                                 if let Err(e) = self.load_game() {
-                                                    self.save_feedback = Some((format!("Load failed: {}", e), 3.0));
+                                                    self.save_feedback =
+                                                        Some((format!("Load failed: {}", e), 3.0));
                                                 }
                                                 self.audio.play_click();
                                             }
@@ -3269,18 +3482,23 @@ impl State {
 
                                         ui.add_space(16.0);
 
-
                                         // 2. Options Button
                                         let options_btn = egui::Button::new(
                                             egui::RichText::new("⚙  Options")
                                                 .font(egui::FontId::proportional(18.0))
                                                 .color(egui::Color32::WHITE)
-                                                .strong()
+                                                .strong(),
                                         )
                                         .fill(egui::Color32::from_rgb(21, 101, 192)) // Royal blue
-                                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(100, 181, 246)));
+                                        .stroke(egui::Stroke::new(
+                                            1.5,
+                                            egui::Color32::from_rgb(100, 181, 246),
+                                        ));
 
-                                        if ui.add_sized([btn_width, btn_height], options_btn).clicked() {
+                                        if ui
+                                            .add_sized([btn_width, btn_height], options_btn)
+                                            .clicked()
+                                        {
                                             self.show_options_menu = true;
                                             self.audio.play_click();
                                         }
@@ -3292,16 +3510,22 @@ impl State {
                                             egui::RichText::new("🏆  Stats & Achievements")
                                                 .font(egui::FontId::proportional(18.0))
                                                 .color(egui::Color32::WHITE)
-                                                .strong()
+                                                .strong(),
                                         )
                                         .fill(egui::Color32::from_rgb(230, 81, 0)) // Bright orange
-                                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 183, 77)));
+                                        .stroke(egui::Stroke::new(
+                                            1.5,
+                                            egui::Color32::from_rgb(255, 183, 77),
+                                        ));
 
-                                        if ui.add_sized([btn_width, btn_height], stats_btn).clicked() {
+                                        if ui
+                                            .add_sized([btn_width, btn_height], stats_btn)
+                                            .clicked()
+                                        {
                                             self.show_stats_screen = true;
-                                             // Reload stats from disk when opening to make sure they are fresh
-                                             let save = crate::game::progress::SaveData::load();
-                                             self.statistics = save.statistics;
+                                            // Reload stats from disk when opening to make sure they are fresh
+                                            let save = crate::game::progress::SaveData::load();
+                                            self.statistics = save.statistics;
                                             self.audio.play_click();
                                         }
 
@@ -3312,12 +3536,16 @@ impl State {
                                             egui::RichText::new("🚪  Quit Game")
                                                 .font(egui::FontId::proportional(18.0))
                                                 .color(egui::Color32::WHITE)
-                                                .strong()
+                                                .strong(),
                                         )
                                         .fill(egui::Color32::from_rgb(198, 40, 40)) // Crimson red
-                                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(239, 83, 80)));
+                                        .stroke(egui::Stroke::new(
+                                            1.5,
+                                            egui::Color32::from_rgb(239, 83, 80),
+                                        ));
 
-                                        if ui.add_sized([btn_width, btn_height], quit_btn).clicked() {
+                                        if ui.add_sized([btn_width, btn_height], quit_btn).clicked()
+                                        {
                                             self.exit_requested = true;
                                             self.audio.play_click();
                                         }
@@ -3327,16 +3555,23 @@ impl State {
                                             egui::RichText::new("SETTINGS")
                                                 .font(egui::FontId::proportional(20.0))
                                                 .color(egui::Color32::WHITE)
-                                                .strong()
+                                                .strong(),
                                         );
-                                        
+
                                         ui.add_space(16.0);
 
                                         // SFX Volume Control Slider
                                         ui.horizontal(|ui| {
-                                            ui.label(egui::RichText::new("🔊 SFX Vol:").color(egui::Color32::WHITE).font(egui::FontId::proportional(15.0)));
+                                            ui.label(
+                                                egui::RichText::new("🔊 SFX Vol:")
+                                                    .color(egui::Color32::WHITE)
+                                                    .font(egui::FontId::proportional(15.0)),
+                                            );
                                             let mut sfx_vol = self.audio.get_volume();
-                                            if ui.add(egui::Slider::new(&mut sfx_vol, 0.0..=1.0)).changed() {
+                                            if ui
+                                                .add(egui::Slider::new(&mut sfx_vol, 0.0..=1.0))
+                                                .changed()
+                                            {
                                                 self.audio.set_volume(sfx_vol);
                                             }
                                         });
@@ -3345,9 +3580,16 @@ impl State {
 
                                         // Music Volume Control Slider
                                         ui.horizontal(|ui| {
-                                            ui.label(egui::RichText::new("🎵 Music Vol:").color(egui::Color32::WHITE).font(egui::FontId::proportional(15.0)));
+                                            ui.label(
+                                                egui::RichText::new("🎵 Music Vol:")
+                                                    .color(egui::Color32::WHITE)
+                                                    .font(egui::FontId::proportional(15.0)),
+                                            );
                                             let mut music_vol = self.audio.get_music_volume();
-                                            if ui.add(egui::Slider::new(&mut music_vol, 0.0..=1.0)).changed() {
+                                            if ui
+                                                .add(egui::Slider::new(&mut music_vol, 0.0..=1.0))
+                                                .changed()
+                                            {
                                                 self.audio.set_music_volume(music_vol);
                                             }
                                         });
@@ -3357,7 +3599,15 @@ impl State {
                                         // Music Mute Toggle Checkbox
                                         ui.horizontal(|ui| {
                                             let mut music_muted = self.audio.get_music_muted();
-                                            if ui.checkbox(&mut music_muted, egui::RichText::new("Mute Music").color(egui::Color32::WHITE).font(egui::FontId::proportional(15.0))).changed() {
+                                            if ui
+                                                .checkbox(
+                                                    &mut music_muted,
+                                                    egui::RichText::new("Mute Music")
+                                                        .color(egui::Color32::WHITE)
+                                                        .font(egui::FontId::proportional(15.0)),
+                                                )
+                                                .changed()
+                                            {
                                                 self.audio.set_music_muted(music_muted);
                                                 self.audio.play_click();
                                             }
@@ -3370,12 +3620,16 @@ impl State {
                                             egui::RichText::new("⬅  Back")
                                                 .font(egui::FontId::proportional(18.0))
                                                 .color(egui::Color32::WHITE)
-                                                .strong()
+                                                .strong(),
                                         )
                                         .fill(egui::Color32::from_rgb(97, 97, 97))
-                                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(189, 189, 189)));
+                                        .stroke(egui::Stroke::new(
+                                            1.5,
+                                            egui::Color32::from_rgb(189, 189, 189),
+                                        ));
 
-                                        if ui.add_sized([btn_width, btn_height], back_btn).clicked() {
+                                        if ui.add_sized([btn_width, btn_height], back_btn).clicked()
+                                        {
                                             self.show_options_menu = false;
                                             self.audio.play_click();
                                         }
@@ -3388,9 +3642,10 @@ impl State {
 
         // 3. End frame and tessellate
         let full_output = self.egui_ctx.end_pass();
-        
+
         // Handle egui platform output (textures and viewports)
-        self.egui_state.handle_platform_output(&self.window, full_output.platform_output);
+        self.egui_state
+            .handle_platform_output(&self.window, full_output.platform_output);
 
         let paint_jobs = self.egui_ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
         let screen_descriptor = egui_wgpu::ScreenDescriptor {
@@ -3404,9 +3659,10 @@ impl State {
         }
 
         // 5. Create command encoder for egui buffer updates and rendering
-        let mut egui_encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Egui Encoder"),
-        });
+        let mut egui_encoder =
+            self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Egui Encoder"),
+            });
 
         // 6. Update egui buffers on GPU
         self.egui_renderer.update_buffers(
@@ -3419,21 +3675,23 @@ impl State {
 
         // 7. Render egui using a render pass with LoadOp::Load
         {
-            let mut render_pass = egui_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Egui Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            }).forget_lifetime();
+            let mut render_pass = egui_encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Egui Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                })
+                .forget_lifetime();
 
             self.egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
         }
@@ -3473,7 +3731,8 @@ impl State {
             winit::event::WindowEvent::MouseInput { state, button, .. } => {
                 self.input.process_mouse_button(*button, *state);
 
-                if (self.game_state == crate::game::game_state::GameState::Playing || self.game_state == crate::game::game_state::GameState::Paused)
+                if (self.game_state == crate::game::game_state::GameState::Playing
+                    || self.game_state == crate::game::game_state::GameState::Paused)
                     && *button == winit::event::MouseButton::Left
                     && *state == winit::event::ElementState::Pressed
                 {
@@ -3490,7 +3749,11 @@ impl State {
 
                         if let Some(idx) = clicked_tower_idx {
                             self.selected_tower_index = Some(idx);
-                            self.placement_status = format!("Selected level {} {:?}", self.tower_manager.towers[idx].get_level(), self.tower_manager.towers[idx].tower_type());
+                            self.placement_status = format!(
+                                "Selected level {} {:?}",
+                                self.tower_manager.towers[idx].get_level(),
+                                self.tower_manager.towers[idx].tower_type()
+                            );
                             self.update_window_title();
                         } else if self.selected_tower_index.is_some() {
                             self.selected_tower_index = None;
@@ -3499,11 +3762,19 @@ impl State {
                         } else {
                             let pos = glam::Vec2::new(gx as f32, gz as f32);
                             let tower_type = self.selected_tower_type;
-                            match self.tower_manager.place_tower(&self.map, pos, tower_type, &mut self.economy) {
+                            match self.tower_manager.place_tower(
+                                &self.map,
+                                pos,
+                                tower_type,
+                                &mut self.economy,
+                            ) {
                                 Ok(_) => {
                                     self.audio.play_place();
                                     log::info!("Placed {:?} tower at {}, {}", tower_type, gx, gz);
-                                    self.placement_status = format!("Placed {:?} tower at ({}, {})", tower_type, gx, gz);
+                                    self.placement_status = format!(
+                                        "Placed {:?} tower at ({}, {})",
+                                        tower_type, gx, gz
+                                    );
                                     self.update_window_title();
 
                                     self.statistics.towers_placed += 1;
@@ -3522,8 +3793,7 @@ impl State {
                 false
             }
             winit::event::WindowEvent::CursorMoved { position, .. } => {
-                self.input
-                    .set_mouse_position(position.x as f32, position.y as f32);
+                self.input.set_mouse_position(position.x as f32, position.y as f32);
                 // Returns false so `app.rs` still updates the hover cursor.
                 false
             }
@@ -3548,7 +3818,6 @@ pub const TILE_WORLD_SIZE: f32 = 0.12;
 /// Lowest cube level drawn for the terrain skirt (border depth). Meshing and
 /// picking share this so a tile's pickable column matches its visible extent.
 const TERRAIN_BASE_LEVEL: i32 = -2;
-
 
 /// How much larger the highlight shell is than the block it wraps, so it sits
 /// just outside the terrain faces and avoids z-fighting.
@@ -3642,7 +3911,8 @@ fn build_terrain_mesh(
             ];
 
             for (nx, nz, face) in neighbours {
-                let neighbour_h = map.get_tile(nx, nz).map(|t| t.grid_y).unwrap_or(TERRAIN_BASE_LEVEL);
+                let neighbour_h =
+                    map.get_tile(nx, nz).map(|t| t.grid_y).unwrap_or(TERRAIN_BASE_LEVEL);
 
                 let mut level = neighbour_h + 1;
                 while level <= top_h {
@@ -3665,7 +3935,7 @@ fn create_gold_texture(text: &str) -> image::RgbaImage {
     let width = 32;
     let height = 16;
     let mut img = image::RgbaImage::new(width, height);
-    
+
     // Tiny 3x5 font: 0-9 and '+'
     let get_char_bitmap = |c: char| -> &'static [u8; 5] {
         match c {
@@ -3683,20 +3953,19 @@ fn create_gold_texture(text: &str) -> image::RgbaImage {
             _ => &[0, 0, 0, 0, 0],
         }
     };
-    
+
     // Calculate total width to center the text
     let char_width = 3;
     let spacing = 1;
     let total_width = text.len() as i32 * char_width + (text.len() as i32 - 1) * spacing;
     let start_x = (width as i32 - total_width) / 2;
     let start_y = (height as i32 - 5) / 2;
-    
+
     for (char_idx, c) in text.chars().enumerate() {
         let bitmap = get_char_bitmap(c);
         let cx = start_x + char_idx as i32 * (char_width + spacing);
-        
-        for row in 0..5 {
-            let val = bitmap[row];
+
+        for (row, &val) in bitmap.iter().enumerate() {
             let cy = start_y + row as i32;
             for col in 0..3 {
                 // Check if bit (2 - col) is set
@@ -3710,7 +3979,7 @@ fn create_gold_texture(text: &str) -> image::RgbaImage {
             }
         }
     }
-    
+
     // Outline pass: for any yellow pixel, check its 8 neighbors. If they are empty, make them black.
     let mut yellow_pixels = std::collections::HashSet::new();
     for y in 0..height {
@@ -3721,7 +3990,7 @@ fn create_gold_texture(text: &str) -> image::RgbaImage {
             }
         }
     }
-    
+
     for &(x, y) in &yellow_pixels {
         for dy in -1..=1 {
             for dx in -1..=1 {
@@ -3730,15 +3999,18 @@ fn create_gold_texture(text: &str) -> image::RgbaImage {
                 }
                 let nx = x + dx;
                 let ny = y + dy;
-                if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
-                    if !yellow_pixels.contains(&(nx, ny)) {
-                        img.put_pixel(nx as u32, ny as u32, image::Rgba([0, 0, 0, 255]));
-                    }
+                if nx >= 0
+                    && nx < width as i32
+                    && ny >= 0
+                    && ny < height as i32
+                    && !yellow_pixels.contains(&(nx, ny))
+                {
+                    img.put_pixel(nx as u32, ny as u32, image::Rgba([0, 0, 0, 255]));
                 }
             }
         }
     }
-    
+
     img
 }
 
@@ -3751,7 +4023,7 @@ fn create_multiline_text_texture(
     color2: [u8; 4],
 ) -> image::RgbaImage {
     let mut img = image::RgbaImage::new(width, height);
-    
+
     // Tiny 3x5 font
     let get_char_bitmap = |c: char| -> &'static [u8; 5] {
         match c {
@@ -3806,13 +4078,12 @@ fn create_multiline_text_texture(
         let text_width = line1.len() as i32 * 4 - 1;
         let start_x = (width as i32 - text_width) / 2;
         let start_y = (height as i32 / 4) - 2;
-        
+
         for (char_idx, c) in line1.chars().enumerate() {
             let bitmap = get_char_bitmap(c);
             let cx = start_x + char_idx as i32 * 4;
-            
-            for row in 0..5 {
-                let row_val = bitmap[row];
+
+            for (row, &row_val) in bitmap.iter().enumerate() {
                 let cy = start_y + row as i32;
                 for col in 0..3 {
                     let bit = (row_val >> (2 - col)) & 1;
@@ -3832,13 +4103,12 @@ fn create_multiline_text_texture(
         let text_width = line2.len() as i32 * 4 - 1;
         let start_x = (width as i32 - text_width) / 2;
         let start_y = (3 * height as i32 / 4) - 2;
-        
+
         for (char_idx, c) in line2.chars().enumerate() {
             let bitmap = get_char_bitmap(c);
             let cx = start_x + char_idx as i32 * 4;
-            
-            for row in 0..5 {
-                let row_val = bitmap[row];
+
+            for (row, &row_val) in bitmap.iter().enumerate() {
                 let cy = start_y + row as i32;
                 for col in 0..3 {
                     let bit = (row_val >> (2 - col)) & 1;
@@ -3858,14 +4128,16 @@ fn create_multiline_text_texture(
     for y in 0..height {
         for x in 0..width {
             let p = img.get_pixel(x, y);
-            let is_colored1 = p[3] > 0 && p[0] == color1[0] && p[1] == color1[1] && p[2] == color1[2];
-            let is_colored2 = p[3] > 0 && p[0] == color2[0] && p[1] == color2[1] && p[2] == color2[2];
+            let is_colored1 =
+                p[3] > 0 && p[0] == color1[0] && p[1] == color1[1] && p[2] == color1[2];
+            let is_colored2 =
+                p[3] > 0 && p[0] == color2[0] && p[1] == color2[1] && p[2] == color2[2];
             if is_colored1 || is_colored2 {
                 text_pixels.insert((x as i32, y as i32));
             }
         }
     }
-    
+
     for &(x, y) in &text_pixels {
         for dy in -1..=1 {
             for dx in -1..=1 {
@@ -3874,19 +4146,41 @@ fn create_multiline_text_texture(
                 }
                 let nx = x + dx;
                 let ny = y + dy;
-                if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
-                    if !text_pixels.contains(&(nx, ny)) {
-                        img.put_pixel(nx as u32, ny as u32, image::Rgba([0, 0, 0, 255]));
-                    }
+                if nx >= 0
+                    && nx < width as i32
+                    && ny >= 0
+                    && ny < height as i32
+                    && !text_pixels.contains(&(nx, ny))
+                {
+                    img.put_pixel(nx as u32, ny as u32, image::Rgba([0, 0, 0, 255]));
                 }
             }
         }
     }
-    
+
     img
 }
 
-// Removed Vertex implementation (moved to renderer module)
+fn draw_minimap_preview(ui: &mut egui::Ui, grid: &[[u32; 10]; 10]) {
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+        for row in grid {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                for &cell in row {
+                    let color = match cell {
+                        1 => egui::Color32::from_rgb(218, 165, 32), // Path (gold)
+                        2 => egui::Color32::from_rgb(120, 120, 120), // Rock (grey)
+                        _ => egui::Color32::from_rgb(34, 139, 34),  // Grass (forest green)
+                    };
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
+                    ui.painter().rect_filled(rect, 1.0, color);
+                }
+            });
+        }
+    });
+}
 
 #[cfg(test)]
 mod tests {
@@ -3901,7 +4195,10 @@ mod tests {
         let max = glam::Vec3::new(0.5, 0.5, 3.0);
 
         let t = ray_aabb(origin, dir, min, max).expect("ray should hit the box");
-        assert!((t - 2.0).abs() < 1e-5, "entry distance should be 2.0, got {t}");
+        assert!(
+            (t - 2.0).abs() < 1e-5,
+            "entry distance should be 2.0, got {t}"
+        );
     }
 
     #[test]
@@ -3925,48 +4222,4 @@ mod tests {
 
         assert!(ray_aabb(origin, dir, min, max).is_none());
     }
-}
-
-#[allow(dead_code)]
-fn dummy_compile_test(device: &wgpu::Device, window: &winit::window::Window) {
-    let egui_ctx = egui::Context::default();
-    let viewport_id = egui_ctx.viewport_id();
-    let _egui_state = egui_winit::State::new(
-        egui_ctx.clone(),
-        viewport_id,
-        window,
-        Some(window.scale_factor() as f32),
-        None,
-        None,
-    );
-    let _egui_renderer = egui_wgpu::Renderer::new(
-        device,
-        wgpu::TextureFormat::Rgba8UnormSrgb,
-        egui_wgpu::RendererOptions {
-            msaa_samples: 1,
-            depth_stencil_format: None,
-            dithering: true,
-            predictable_texture_filtering: false,
-        },
-    );
-}
-
-fn draw_minimap_preview(ui: &mut egui::Ui, grid: &[[u32; 10]; 10]) {
-    ui.vertical(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
-        for row in grid {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
-                for &cell in row {
-                    let color = match cell {
-                        1 => egui::Color32::from_rgb(218, 165, 32), // Path (gold)
-                        2 => egui::Color32::from_rgb(120, 120, 120), // Rock (grey)
-                        _ => egui::Color32::from_rgb(34, 139, 34), // Grass (forest green)
-                    };
-                    let (rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
-                    ui.painter().rect_filled(rect, 1.0, color);
-                }
-            });
-        }
-    });
 }

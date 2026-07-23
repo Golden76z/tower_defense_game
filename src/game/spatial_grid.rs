@@ -47,10 +47,14 @@ impl SpatialGrid {
         let min_y = center.y - radius;
         let max_y = center.y + radius;
 
-        let min_cx = ((min_x / self.cell_size).floor() as i32).clamp(0, self.cols as i32 - 1) as usize;
-        let max_cx = ((max_x / self.cell_size).floor() as i32).clamp(0, self.cols as i32 - 1) as usize;
-        let min_cy = ((min_y / self.cell_size).floor() as i32).clamp(0, self.rows as i32 - 1) as usize;
-        let max_cy = ((max_y / self.cell_size).floor() as i32).clamp(0, self.rows as i32 - 1) as usize;
+        let min_cx =
+            ((min_x / self.cell_size).floor() as i32).clamp(0, self.cols as i32 - 1) as usize;
+        let max_cx =
+            ((max_x / self.cell_size).floor() as i32).clamp(0, self.cols as i32 - 1) as usize;
+        let min_cy =
+            ((min_y / self.cell_size).floor() as i32).clamp(0, self.rows as i32 - 1) as usize;
+        let max_cy =
+            ((max_y / self.cell_size).floor() as i32).clamp(0, self.rows as i32 - 1) as usize;
 
         for cy in min_cy..=max_cy {
             for cx in min_cx..=max_cx {

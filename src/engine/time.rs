@@ -194,7 +194,10 @@ mod tests {
         let mut time = Time::with_fixed_hz(60.0);
         let frame = Duration::from_secs_f64(1.0 / 144.0);
         let steps = count_steps(&mut time, frame, 144);
-        assert!((58..=61).contains(&steps), "expected ~60 steps, got {steps}");
+        assert!(
+            (58..=61).contains(&steps),
+            "expected ~60 steps, got {steps}"
+        );
     }
 
     #[test]

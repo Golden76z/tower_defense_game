@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Damien PROUET <damienprouet76@gmail.com>"]
 license = "MIT OR Apache-2.0"
-description = "A 2D isometric tower defense game built with Rust"
+description = "A 3D isometric tower defense game built with Rust"
 repository = "https://github.com/Golden76z/tower_defense_game"
 readme = "README.md"
 keywords = ["game", "tower-defense", "wgpu"]
@@ -36,21 +36,17 @@ anyhow = "1.0.100"
 noise = "0.9.0"
 tobj = "4.0.4"
 
-# UI (add when needed in Phase 4)
+# UI
 egui = "0.33"
 egui-wgpu = "0.33"
 egui-winit = "0.33"
 
-# Audio (add when needed in Phase 5)
+# Audio
 rodio = "0.19"
 
 
 [dev-dependencies]
-# Testing utilities
-approx = "0.5"              # For floating point comparisons
-proptest = "1.4"            # Property-based testing
-criterion = "0.5"           # Benchmarking
-mockall = "0.12"            # Mocking for tests
+approx = "0.5" # For floating-point comparisons in tests
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -60,11 +56,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "tower_defense_game"
 path = "src/main.rs"
-
-# Benchmark configuration
-[[bench]]
-name = "rendering_bench"
-harness = false
 
 [profile.dev]
 opt-level = 1               # Slight optimization for dev
@@ -95,7 +86,7 @@ profiling = []              # Enable performance profiling
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"
 console_log = "1.0"
-wgpu = { version = "27.0.0", features = ["webgl"]}
+wgpu = { version = "27.0.1", features = ["webgl"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4.30"
 web-sys = { version = "0.3", features = [

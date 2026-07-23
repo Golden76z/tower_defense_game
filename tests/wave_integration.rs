@@ -1,4 +1,4 @@
-use tower_defense_lib::game::wave_manager::{WaveManager, Wave, EnemySpawn, EnemyType, WaveState};
+use tower_defense_lib::game::wave_manager::{EnemySpawn, EnemyType, Wave, WaveManager, WaveState};
 
 #[test]
 fn test_wave_integration_flow() {

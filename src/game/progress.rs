@@ -1,5 +1,12 @@
 use serde::{Deserialize, Serialize};
 
+/// Current on-disk schema version for the progression save file. Bump this when
+/// the format changes so old files (which default to 0) can be migrated.
+pub const SAVE_VERSION: u32 = 1;
+
+/// Path of the progression save file, relative to the working directory.
+const PROGRESS_PATH: &str = "isoguard_progress.json";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MapProgress {
     pub unlocked: bool,
@@ -16,7 +23,7 @@ pub struct Achievements {
     pub victorious: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct GameStatistics {
     pub games_played: u32,
     pub wins: u32,
@@ -28,21 +35,6 @@ pub struct GameStatistics {
     pub gold_spent: u32,
     #[serde(default)]
     pub achievements: Achievements,
-}
-
-impl Default for GameStatistics {
-    fn default() -> Self {
-        Self {
-            games_played: 0,
-            wins: 0,
-            waves_completed: 0,
-            enemies_killed: 0,
-            towers_placed: 0,
-            high_score: 0,
-            gold_spent: 0,
-            achievements: Achievements::default(),
-        }
-    }
 }
 
 impl GameStatistics {
@@ -67,6 +59,10 @@ impl GameStatistics {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SaveData {
+    /// Schema version of this save (see [`SAVE_VERSION`]). Files written before
+    /// versioning existed have no field and default to 0.
+    #[serde(default)]
+    pub version: u32,
     pub easy: MapProgress,
     pub medium: MapProgress,
     pub hard: MapProgress,
@@ -77,6 +73,7 @@ pub struct SaveData {
 impl Default for SaveData {
     fn default() -> Self {
         Self {
+            version: SAVE_VERSION,
             easy: MapProgress {
                 unlocked: true,
                 high_score: 0,
@@ -99,17 +96,32 @@ impl Default for SaveData {
 
 impl SaveData {
     pub fn load() -> Self {
-        if let Ok(content) = std::fs::read_to_string("isoguard_progress.json") {
-            if let Ok(data) = serde_json::from_str::<SaveData>(&content) {
-                return data;
-            }
+        Self::load_from_path(PROGRESS_PATH)
+    }
+
+    /// Loads progress from `path`, distinguishing a missing file (first run →
+    /// defaults) from a corrupt one (back it up, then defaults) so a parse error
+    /// never silently wipes real progress.
+    fn load_from_path(path: &str) -> Self {
+        match std::fs::read_to_string(path) {
+            Err(_) => Self::default(),
+            Ok(content) => match serde_json::from_str::<SaveData>(&content) {
+                Ok(data) => data,
+                Err(e) => {
+                    let backup = format!("{path}.bak");
+                    log::error!(
+                        "Progress file '{path}' is corrupt ({e}); backing up to '{backup}' and starting fresh"
+                    );
+                    let _ = std::fs::rename(path, &backup);
+                    Self::default()
+                }
+            },
         }
-        Self::default()
     }
 
     pub fn save(&self) {
         if let Ok(content) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write("isoguard_progress.json", content);
+            let _ = std::fs::write(PROGRESS_PATH, content);
         }
     }
 }
@@ -128,12 +140,12 @@ mod tests {
         }"#;
 
         let parsed: SaveData = serde_json::from_str(legacy_json).unwrap();
-        
+
         // Easy progress should be loaded correctly
         assert!(parsed.easy.unlocked);
         assert_eq!(parsed.easy.high_score, 1500);
         assert!(parsed.easy.completed);
-        
+
         // The statistics field should automatically fall back to its Default implementation
         assert_eq!(parsed.statistics, GameStatistics::default());
         assert_eq!(parsed.statistics.games_played, 0);
@@ -158,7 +170,7 @@ mod tests {
     #[test]
     fn test_achievements_unlocking() {
         let mut save_data = SaveData::default();
-        
+
         // At start, no achievements should be unlocked
         assert!(!save_data.statistics.achievements.first_blood);
         assert!(!save_data.statistics.achievements.architect);
@@ -190,5 +202,68 @@ mod tests {
         save_data.statistics.wins = 1;
         save_data.statistics.check_achievements();
         assert!(save_data.statistics.achievements.victorious);
+    }
+
+    #[test]
+    fn save_data_records_version_and_legacy_files_still_load() {
+        // New saves carry the current schema version.
+        assert_eq!(SaveData::default().version, SAVE_VERSION);
+        let json = serde_json::to_string(&SaveData::default()).unwrap();
+        assert!(json.contains("\"version\""));
+
+        // Pre-versioning files (no version field) still load, defaulting to 0.
+        let legacy = r#"{
+            "easy": { "unlocked": true, "high_score": 1500, "completed": true },
+            "medium": { "unlocked": false, "high_score": 0, "completed": false },
+            "hard": { "unlocked": false, "high_score": 0, "completed": false }
+        }"#;
+        let parsed: SaveData = serde_json::from_str(legacy).unwrap();
+        assert_eq!(parsed.version, 0, "pre-version files default to version 0");
+        assert!(parsed.easy.unlocked);
+    }
+
+    #[test]
+    fn corrupt_progress_file_is_backed_up_not_silently_overwritten() {
+        // Regression: any parse error used to return Default silently, and the
+        // next save() overwrote the file — permanently wiping real progress.
+        let path = std::env::temp_dir().join("isoguard_progress_corrupt_test.json");
+        let path_str = path.to_str().unwrap();
+        let backup = format!("{path_str}.bak");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&backup);
+
+        std::fs::write(&path, b"{ not valid json ").unwrap();
+        let data = SaveData::load_from_path(path_str);
+
+        // Falls back to defaults...
+        assert!(data.easy.unlocked);
+        // ...but the corrupt original is preserved as a .bak, not overwritten.
+        assert!(
+            std::fs::metadata(&backup).is_ok(),
+            "corrupt file should be backed up"
+        );
+        assert!(
+            std::fs::metadata(&path).is_err(),
+            "corrupt file should be moved aside"
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&backup);
+    }
+
+    #[test]
+    fn missing_progress_file_loads_defaults_without_a_backup() {
+        let path = std::env::temp_dir().join("isoguard_progress_missing_test.json");
+        let path_str = path.to_str().unwrap();
+        let backup = format!("{path_str}.bak");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&backup);
+
+        let data = SaveData::load_from_path(path_str);
+        assert!(data.easy.unlocked);
+        assert!(
+            std::fs::metadata(&backup).is_err(),
+            "a missing file is a first run, not a corruption — no backup"
+        );
     }
 }

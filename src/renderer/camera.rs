@@ -23,7 +23,7 @@ impl Camera {
         // Base ortho height is 2.0, scale by zoom
         let ortho_height = 2.0 / self.zoom;
         let ortho_width = ortho_height * aspect;
-        
+
         let proj = Mat4::orthographic_rh(
             -ortho_width / 2.0,
             ortho_width / 2.0,
@@ -111,8 +111,10 @@ impl Camera {
         let pad_x = radius * (2.0 / ortho_width);
         let pad_y = radius * (2.0 / ortho_height);
 
-        ndc.x >= -1.0 - pad_x && ndc.x <= 1.0 + pad_x &&
-        ndc.y >= -1.0 - pad_y && ndc.y <= 1.0 + pad_y
+        ndc.x >= -1.0 - pad_x
+            && ndc.x <= 1.0 + pad_x
+            && ndc.y >= -1.0 - pad_y
+            && ndc.y <= 1.0 + pad_y
     }
 }
 
@@ -276,7 +278,7 @@ mod tests {
         let mut controller = CameraController::new(10.0, 1.0);
         controller.move_right = true;
         controller.update_camera(&mut camera, 0.1);
-        
+
         // Moving right should increase x and decrease z in world space
         assert!(camera.target.x > 0.0);
         assert!(camera.target.z < 0.0);
@@ -305,9 +307,7 @@ mod tests {
             zoom: 1.0,
         };
         let (w, h) = (800u32, 600u32);
-        let hit = camera
-            .screen_to_ground(w as f32 / 2.0, h as f32 / 2.0, w, h, 0.0)
-            .unwrap();
+        let hit = camera.screen_to_ground(w as f32 / 2.0, h as f32 / 2.0, w, h, 0.0).unwrap();
         assert!((hit.x - 1.5).abs() < 1e-3, "x, got {}", hit.x);
         assert!((hit.z + 2.0).abs() < 1e-3, "z, got {}", hit.z);
     }
@@ -315,7 +315,7 @@ mod tests {
     #[test]
     fn test_sprite_centering_when_camera_moves() {
         let mut camera = Camera::new();
-        
+
         // 1. Initially target is ZERO. Projecting target (ZERO) should be at center (0,0) in NDC space.
         let mat = camera.build_view_projection_matrix(800, 600);
         let clip_pos = mat * glam::Vec4::new(0.0, 0.0, 0.0, 1.0);
@@ -326,7 +326,7 @@ mod tests {
         // 2. Now move camera target to some arbitrary position.
         camera.target = Vec3::new(12.3, 4.5, -6.7);
         let mat = camera.build_view_projection_matrix(800, 600);
-        
+
         // Projecting the sprite at (12.3, 4.5, -6.7) should still map to NDC center (0,0).
         let clip_pos = mat * glam::Vec4::new(12.3, 4.5, -6.7, 1.0);
         let ndc = clip_pos.xyz() / clip_pos.w;
@@ -334,4 +334,3 @@ mod tests {
         assert!((ndc.y - 0.0).abs() < 1e-5);
     }
 }
-

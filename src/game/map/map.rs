@@ -115,16 +115,35 @@ impl Map {
                     _ => 1 + ((elevation - 0.30) * 7.0).round() as i32,
                 };
 
-                let walkable = matches!(
-                    tile_type,
-                    TileType::Grass | TileType::Sand | TileType::Path
-                );
+                let walkable =
+                    matches!(tile_type, TileType::Grass | TileType::Sand | TileType::Path);
 
                 // Here we map x -> grid_x, height_steps -> grid_y, y -> grid_z
                 let tile = Tile::new(tile_type, x, height_steps, y, walkable);
 
                 let _ = map.set_tile(x, y, tile);
             }
+        }
+
+        // Carve a straight road across the middle of the island and record it
+        // as the enemy waypoint route. Without a path, no enemies spawn and the
+        // level would instantly register as won.
+        let road_y = height / 2;
+        if width > 0 && road_y >= 0 && road_y < height {
+            for x in 0..width {
+                // Keep the terrain height but lift the road to at least land
+                // level so enemies never appear to walk below the sea.
+                let road_height = map.get_tile(x, road_y).map(|t| t.grid_y.max(1)).unwrap_or(1);
+                let _ = map.set_tile(
+                    x,
+                    road_y,
+                    Tile::new(TileType::Path, x, road_height, road_y, true),
+                );
+            }
+            map.path = Path::new(vec![
+                glam::Vec2::new(0.0, road_y as f32),
+                glam::Vec2::new((width - 1) as f32, road_y as f32),
+            ]);
         }
 
         map.paths = vec![map.path.clone()];
@@ -165,21 +184,45 @@ mod tests {
     fn test_set_tile() {
         let mut map = Map::new(20, 20);
         let custom_tile = Tile::new(TileType::Rock, 5, 2, 5, false);
-        
+
         let result = map.set_tile(5, 5, custom_tile.clone());
         assert!(result.is_ok());
-        
+
         let tile = map.get_tile(5, 5).unwrap();
         assert_eq!(tile.tile_type, TileType::Rock);
-        assert_eq!(tile.walkable, false);
+        assert!(!tile.walkable);
     }
 
     #[test]
     fn test_set_tile_invalid() {
         let mut map = Map::new(20, 20);
         let custom_tile = Tile::new(TileType::Rock, 5, 2, 5, false);
-        
+
         assert!(map.set_tile(-1, 5, custom_tile.clone()).is_err());
         assert!(map.set_tile(20, 5, custom_tile.clone()).is_err());
+    }
+
+    #[test]
+    fn generated_island_has_a_playable_path() {
+        // Regression: generate_island used to leave `path` empty, so the
+        // volcanic / procedural levels spawned no enemies and instantly "won".
+        let map = Map::generate_island(20, 20, 1337);
+        assert!(!map.path.is_empty(), "island must define a waypoint path");
+        assert!(map.path.len() >= 2, "path needs a start and an end");
+        assert!(map.path.start().is_some());
+        // The spawner reads map.paths; it must expose the same non-empty route.
+        assert!(!map.paths.is_empty());
+        assert!(map.paths.iter().all(|p| !p.is_empty()));
+        // Waypoints stay inside the map bounds.
+        for wp in map.path.waypoints() {
+            assert!(
+                wp.x >= 0.0 && wp.x < map.width as f32,
+                "x in bounds: {wp:?}"
+            );
+            assert!(
+                wp.y >= 0.0 && wp.y < map.height as f32,
+                "y in bounds: {wp:?}"
+            );
+        }
     }
 }

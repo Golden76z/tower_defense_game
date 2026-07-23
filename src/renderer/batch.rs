@@ -1,5 +1,5 @@
-use crate::renderer::Vertex;
 use crate::renderer::sprite::{Sprite, SpriteAlignment};
+use crate::renderer::Vertex;
 
 /// A single draw batch for rendering sprites that share a texture.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,46 +112,166 @@ impl BatchItem {
                 let hz = size.z / 2.0;
 
                 // 5 faces (all except top): front, back, left, right, bottom
-                
+
                 // Front face (Z = +hz)
-                vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] });
+                vertices.push(Vertex {
+                    position: [x - hx, y + hy, z + hz],
+                    tex_coords: [0.0, 0.0],
+                    color: [0.6, 0.6, 0.6, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y - hy, z + hz],
+                    tex_coords: [0.0, 1.0],
+                    color: [0.6, 0.6, 0.6, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y - hy, z + hz],
+                    tex_coords: [1.0, 1.0],
+                    color: [0.6, 0.6, 0.6, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y + hy, z + hz],
+                    tex_coords: [0.0, 0.0],
+                    color: [0.6, 0.6, 0.6, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y - hy, z + hz],
+                    tex_coords: [1.0, 1.0],
+                    color: [0.6, 0.6, 0.6, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y + hy, z + hz],
+                    tex_coords: [1.0, 0.0],
+                    color: [0.6, 0.6, 0.6, 1.0],
+                });
 
                 // Back face (Z = -hz)
-                vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.6, 0.6, 0.6, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: [0.6, 0.6, 0.6, 1.0] });
+                vertices.push(Vertex {
+                    position: [x + hx, y + hy, z - hz],
+                    tex_coords: [0.0, 0.0],
+                    color: [0.6, 0.6, 0.6, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y - hy, z - hz],
+                    tex_coords: [0.0, 1.0],
+                    color: [0.6, 0.6, 0.6, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y - hy, z - hz],
+                    tex_coords: [1.0, 1.0],
+                    color: [0.6, 0.6, 0.6, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y + hy, z - hz],
+                    tex_coords: [0.0, 0.0],
+                    color: [0.6, 0.6, 0.6, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y - hy, z - hz],
+                    tex_coords: [1.0, 1.0],
+                    color: [0.6, 0.6, 0.6, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y + hy, z - hz],
+                    tex_coords: [1.0, 0.0],
+                    color: [0.6, 0.6, 0.6, 1.0],
+                });
 
                 // Left face (X = -hx)
-                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] });
+                vertices.push(Vertex {
+                    position: [x - hx, y + hy, z - hz],
+                    tex_coords: [0.0, 0.0],
+                    color: [0.8, 0.8, 0.8, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y - hy, z - hz],
+                    tex_coords: [0.0, 1.0],
+                    color: [0.8, 0.8, 0.8, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y - hy, z + hz],
+                    tex_coords: [1.0, 1.0],
+                    color: [0.8, 0.8, 0.8, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y + hy, z - hz],
+                    tex_coords: [0.0, 0.0],
+                    color: [0.8, 0.8, 0.8, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y - hy, z + hz],
+                    tex_coords: [1.0, 1.0],
+                    color: [0.8, 0.8, 0.8, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y + hy, z + hz],
+                    tex_coords: [1.0, 0.0],
+                    color: [0.8, 0.8, 0.8, 1.0],
+                });
 
                 // Right face (X = +hx)
-                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.8, 0.8, 0.8, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: [0.8, 0.8, 0.8, 1.0] });
+                vertices.push(Vertex {
+                    position: [x + hx, y + hy, z + hz],
+                    tex_coords: [0.0, 0.0],
+                    color: [0.8, 0.8, 0.8, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y - hy, z + hz],
+                    tex_coords: [0.0, 1.0],
+                    color: [0.8, 0.8, 0.8, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y - hy, z - hz],
+                    tex_coords: [1.0, 1.0],
+                    color: [0.8, 0.8, 0.8, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y + hy, z + hz],
+                    tex_coords: [0.0, 0.0],
+                    color: [0.8, 0.8, 0.8, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y - hy, z - hz],
+                    tex_coords: [1.0, 1.0],
+                    color: [0.8, 0.8, 0.8, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y + hy, z - hz],
+                    tex_coords: [1.0, 0.0],
+                    color: [0.8, 0.8, 0.8, 1.0],
+                });
 
                 // Bottom face (Y = -hy)
-                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: [0.4, 0.4, 0.4, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: [0.4, 0.4, 0.4, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.4, 0.4, 0.4, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: [0.4, 0.4, 0.4, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: [0.4, 0.4, 0.4, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 0.0], color: [0.4, 0.4, 0.4, 1.0] });
+                vertices.push(Vertex {
+                    position: [x - hx, y - hy, z + hz],
+                    tex_coords: [0.0, 0.0],
+                    color: [0.4, 0.4, 0.4, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y - hy, z - hz],
+                    tex_coords: [0.0, 1.0],
+                    color: [0.4, 0.4, 0.4, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y - hy, z - hz],
+                    tex_coords: [1.0, 1.0],
+                    color: [0.4, 0.4, 0.4, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y - hy, z + hz],
+                    tex_coords: [0.0, 0.0],
+                    color: [0.4, 0.4, 0.4, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y - hy, z - hz],
+                    tex_coords: [1.0, 1.0],
+                    color: [0.4, 0.4, 0.4, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y - hy, z + hz],
+                    tex_coords: [1.0, 0.0],
+                    color: [0.4, 0.4, 0.4, 1.0],
+                });
             }
             BatchItem::CubeTop { position, size, .. } => {
                 let x = position.x;
@@ -162,14 +282,43 @@ impl BatchItem {
                 let hz = size.z / 2.0;
 
                 // Top face only (Y = +hy)
-                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [1.0, 1.0, 1.0, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 1.0], color: [1.0, 1.0, 1.0, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: [1.0, 1.0, 1.0, 1.0] });
-                vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: [1.0, 1.0, 1.0, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: [1.0, 1.0, 1.0, 1.0] });
-                vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: [1.0, 1.0, 1.0, 1.0] });
+                vertices.push(Vertex {
+                    position: [x - hx, y + hy, z - hz],
+                    tex_coords: [0.0, 0.0],
+                    color: [1.0, 1.0, 1.0, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y + hy, z + hz],
+                    tex_coords: [0.0, 1.0],
+                    color: [1.0, 1.0, 1.0, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y + hy, z + hz],
+                    tex_coords: [1.0, 1.0],
+                    color: [1.0, 1.0, 1.0, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y + hy, z - hz],
+                    tex_coords: [0.0, 0.0],
+                    color: [1.0, 1.0, 1.0, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y + hy, z + hz],
+                    tex_coords: [1.0, 1.0],
+                    color: [1.0, 1.0, 1.0, 1.0],
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y + hy, z - hz],
+                    tex_coords: [1.0, 0.0],
+                    color: [1.0, 1.0, 1.0, 1.0],
+                });
             }
-            BatchItem::CubeFace { position, size, face, .. } => {
+            BatchItem::CubeFace {
+                position,
+                size,
+                face,
+                ..
+            } => {
                 let x = position.x;
                 let y = position.y;
                 let z = position.z;
@@ -184,65 +333,214 @@ impl BatchItem {
                 match face {
                     Face::Top => {
                         let c = [1.0, 1.0, 1.0, 1.0];
-                        vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: c });
+                        vertices.push(Vertex {
+                            position: [x - hx, y + hy, z - hz],
+                            tex_coords: [0.0, 0.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y + hy, z + hz],
+                            tex_coords: [0.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y + hy, z + hz],
+                            tex_coords: [1.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y + hy, z - hz],
+                            tex_coords: [0.0, 0.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y + hy, z + hz],
+                            tex_coords: [1.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y + hy, z - hz],
+                            tex_coords: [1.0, 0.0],
+                            color: c,
+                        });
                     }
                     Face::Bottom => {
                         let c = [0.4, 0.4, 0.4, 1.0];
-                        vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 0.0], color: c });
+                        vertices.push(Vertex {
+                            position: [x - hx, y - hy, z + hz],
+                            tex_coords: [0.0, 0.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y - hy, z - hz],
+                            tex_coords: [0.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y - hy, z - hz],
+                            tex_coords: [1.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y - hy, z + hz],
+                            tex_coords: [0.0, 0.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y - hy, z - hz],
+                            tex_coords: [1.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y - hy, z + hz],
+                            tex_coords: [1.0, 0.0],
+                            color: c,
+                        });
                     }
                     // South face (Z = +hz) — matches the cube "front" face.
                     Face::South => {
                         let c = [0.6, 0.6, 0.6, 1.0];
-                        vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: c });
+                        vertices.push(Vertex {
+                            position: [x - hx, y + hy, z + hz],
+                            tex_coords: [0.0, 0.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y - hy, z + hz],
+                            tex_coords: [0.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y - hy, z + hz],
+                            tex_coords: [1.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y + hy, z + hz],
+                            tex_coords: [0.0, 0.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y - hy, z + hz],
+                            tex_coords: [1.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y + hy, z + hz],
+                            tex_coords: [1.0, 0.0],
+                            color: c,
+                        });
                     }
                     // North face (Z = -hz) — matches the cube "back" face.
                     Face::North => {
                         let c = [0.6, 0.6, 0.6, 1.0];
-                        vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: c });
+                        vertices.push(Vertex {
+                            position: [x + hx, y + hy, z - hz],
+                            tex_coords: [0.0, 0.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y - hy, z - hz],
+                            tex_coords: [0.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y - hy, z - hz],
+                            tex_coords: [1.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y + hy, z - hz],
+                            tex_coords: [0.0, 0.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y - hy, z - hz],
+                            tex_coords: [1.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y + hy, z - hz],
+                            tex_coords: [1.0, 0.0],
+                            color: c,
+                        });
                     }
                     // West face (X = -hx) — matches the cube "left" face.
                     Face::West => {
                         let c = [0.8, 0.8, 0.8, 1.0];
-                        vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: c });
+                        vertices.push(Vertex {
+                            position: [x - hx, y + hy, z - hz],
+                            tex_coords: [0.0, 0.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y - hy, z - hz],
+                            tex_coords: [0.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y - hy, z + hz],
+                            tex_coords: [1.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y + hy, z - hz],
+                            tex_coords: [0.0, 0.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y - hy, z + hz],
+                            tex_coords: [1.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x - hx, y + hy, z + hz],
+                            tex_coords: [1.0, 0.0],
+                            color: c,
+                        });
                     }
                     // East face (X = +hx) — matches the cube "right" face.
                     Face::East => {
                         let c = [0.8, 0.8, 0.8, 1.0];
-                        vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
-                        vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: c });
+                        vertices.push(Vertex {
+                            position: [x + hx, y + hy, z + hz],
+                            tex_coords: [0.0, 0.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y - hy, z + hz],
+                            tex_coords: [0.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y - hy, z - hz],
+                            tex_coords: [1.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y + hy, z + hz],
+                            tex_coords: [0.0, 0.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y - hy, z - hz],
+                            tex_coords: [1.0, 1.0],
+                            color: c,
+                        });
+                        vertices.push(Vertex {
+                            position: [x + hx, y + hy, z - hz],
+                            tex_coords: [1.0, 0.0],
+                            color: c,
+                        });
                     }
                 }
             }
-            BatchItem::OverlayQuad { position, size, color, .. } => {
+            BatchItem::OverlayQuad {
+                position,
+                size,
+                color,
+                ..
+            } => {
                 let x = position.x;
                 let y = position.y;
                 let z = position.z;
@@ -252,14 +550,43 @@ impl BatchItem {
 
                 // Flat upward-facing quad at constant y, same CCW winding as a
                 // cube top face so it isn't back-face culled.
-                vertices.push(Vertex { position: [x - hx, y, z - hz], tex_coords: [0.0, 0.0], color: c });
-                vertices.push(Vertex { position: [x - hx, y, z + hz], tex_coords: [0.0, 1.0], color: c });
-                vertices.push(Vertex { position: [x + hx, y, z + hz], tex_coords: [1.0, 1.0], color: c });
-                vertices.push(Vertex { position: [x - hx, y, z - hz], tex_coords: [0.0, 0.0], color: c });
-                vertices.push(Vertex { position: [x + hx, y, z + hz], tex_coords: [1.0, 1.0], color: c });
-                vertices.push(Vertex { position: [x + hx, y, z - hz], tex_coords: [1.0, 0.0], color: c });
+                vertices.push(Vertex {
+                    position: [x - hx, y, z - hz],
+                    tex_coords: [0.0, 0.0],
+                    color: c,
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y, z + hz],
+                    tex_coords: [0.0, 1.0],
+                    color: c,
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y, z + hz],
+                    tex_coords: [1.0, 1.0],
+                    color: c,
+                });
+                vertices.push(Vertex {
+                    position: [x - hx, y, z - hz],
+                    tex_coords: [0.0, 0.0],
+                    color: c,
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y, z + hz],
+                    tex_coords: [1.0, 1.0],
+                    color: c,
+                });
+                vertices.push(Vertex {
+                    position: [x + hx, y, z - hz],
+                    tex_coords: [1.0, 0.0],
+                    color: c,
+                });
             }
-            BatchItem::OverlayCircle { position, radius, color, .. } => {
+            BatchItem::OverlayCircle {
+                position,
+                radius,
+                color,
+                ..
+            } => {
                 let x = position.x;
                 let y = position.y;
                 let z = position.z;
@@ -282,9 +609,21 @@ impl BatchItem {
                     let p2_z = z + r * sin2;
 
                     // Filled circle (transparent white color `c`)
-                    vertices.push(Vertex { position: [x, y, z], tex_coords: [0.5, 0.5], color: c });
-                    vertices.push(Vertex { position: [p1_x, y, p1_z], tex_coords: [0.5 + 0.5 * cos1, 0.5 + 0.5 * sin1], color: c });
-                    vertices.push(Vertex { position: [p2_x, y, p2_z], tex_coords: [0.5 + 0.5 * cos2, 0.5 + 0.5 * sin2], color: c });
+                    vertices.push(Vertex {
+                        position: [x, y, z],
+                        tex_coords: [0.5, 0.5],
+                        color: c,
+                    });
+                    vertices.push(Vertex {
+                        position: [p1_x, y, p1_z],
+                        tex_coords: [0.5 + 0.5 * cos1, 0.5 + 0.5 * sin1],
+                        color: c,
+                    });
+                    vertices.push(Vertex {
+                        position: [p2_x, y, p2_z],
+                        tex_coords: [0.5 + 0.5 * cos2, 0.5 + 0.5 * sin2],
+                        color: c,
+                    });
                 }
 
                 // Draw an outer ring/border for extra visual pop
@@ -312,20 +651,53 @@ impl BatchItem {
                     let p2_inner_z = z + r_inner * sin2;
 
                     // Triangle 1: p1_inner -> p1_outer -> p2_outer
-                    vertices.push(Vertex { position: [p1_inner_x, y, p1_inner_z], tex_coords: [0.0, 0.0], color: border_color });
-                    vertices.push(Vertex { position: [p1_outer_x, y, p1_outer_z], tex_coords: [1.0, 0.0], color: border_color });
-                    vertices.push(Vertex { position: [p2_outer_x, y, p2_outer_z], tex_coords: [1.0, 1.0], color: border_color });
+                    vertices.push(Vertex {
+                        position: [p1_inner_x, y, p1_inner_z],
+                        tex_coords: [0.0, 0.0],
+                        color: border_color,
+                    });
+                    vertices.push(Vertex {
+                        position: [p1_outer_x, y, p1_outer_z],
+                        tex_coords: [1.0, 0.0],
+                        color: border_color,
+                    });
+                    vertices.push(Vertex {
+                        position: [p2_outer_x, y, p2_outer_z],
+                        tex_coords: [1.0, 1.0],
+                        color: border_color,
+                    });
 
                     // Triangle 2: p1_inner -> p2_outer -> p2_inner
-                    vertices.push(Vertex { position: [p1_inner_x, y, p1_inner_z], tex_coords: [0.0, 0.0], color: border_color });
-                    vertices.push(Vertex { position: [p2_outer_x, y, p2_outer_z], tex_coords: [1.0, 1.0], color: border_color });
-                    vertices.push(Vertex { position: [p2_inner_x, y, p2_inner_z], tex_coords: [0.0, 1.0], color: border_color });
+                    vertices.push(Vertex {
+                        position: [p1_inner_x, y, p1_inner_z],
+                        tex_coords: [0.0, 0.0],
+                        color: border_color,
+                    });
+                    vertices.push(Vertex {
+                        position: [p2_outer_x, y, p2_outer_z],
+                        tex_coords: [1.0, 1.0],
+                        color: border_color,
+                    });
+                    vertices.push(Vertex {
+                        position: [p2_inner_x, y, p2_inner_z],
+                        tex_coords: [0.0, 1.0],
+                        color: border_color,
+                    });
                 }
             }
-            BatchItem::ColorFace { position, size, face, color, .. } => {
+            BatchItem::ColorFace {
+                position,
+                size,
+                face,
+                color,
+                ..
+            } => {
                 push_color_face(vertices, *face, *position, *size, *color);
             }
-            BatchItem::Model { vertices: model_verts, .. } => {
+            BatchItem::Model {
+                vertices: model_verts,
+                ..
+            } => {
                 vertices.extend_from_slice(model_verts);
             }
         }
@@ -353,52 +725,196 @@ fn push_color_face(
 
     match face {
         Face::Top => {
-            vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: c });
+            vertices.push(Vertex {
+                position: [x - hx, y + hy, z - hz],
+                tex_coords: [0.0, 0.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y + hy, z + hz],
+                tex_coords: [0.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y + hy, z + hz],
+                tex_coords: [1.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y + hy, z - hz],
+                tex_coords: [0.0, 0.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y + hy, z + hz],
+                tex_coords: [1.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y + hy, z - hz],
+                tex_coords: [1.0, 0.0],
+                color: c,
+            });
         }
         Face::Bottom => {
-            vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 0.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 0.0], color: c });
+            vertices.push(Vertex {
+                position: [x - hx, y - hy, z + hz],
+                tex_coords: [0.0, 0.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y - hy, z - hz],
+                tex_coords: [0.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y - hy, z - hz],
+                tex_coords: [1.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y - hy, z + hz],
+                tex_coords: [0.0, 0.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y - hy, z - hz],
+                tex_coords: [1.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y - hy, z + hz],
+                tex_coords: [1.0, 0.0],
+                color: c,
+            });
         }
         Face::South => {
-            vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: c });
+            vertices.push(Vertex {
+                position: [x - hx, y + hy, z + hz],
+                tex_coords: [0.0, 0.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y - hy, z + hz],
+                tex_coords: [0.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y - hy, z + hz],
+                tex_coords: [1.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y + hy, z + hz],
+                tex_coords: [0.0, 0.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y - hy, z + hz],
+                tex_coords: [1.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y + hy, z + hz],
+                tex_coords: [1.0, 0.0],
+                color: c,
+            });
         }
         Face::North => {
-            vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: c });
+            vertices.push(Vertex {
+                position: [x + hx, y + hy, z - hz],
+                tex_coords: [0.0, 0.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y - hy, z - hz],
+                tex_coords: [0.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y - hy, z - hz],
+                tex_coords: [1.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y + hy, z - hz],
+                tex_coords: [0.0, 0.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y - hy, z - hz],
+                tex_coords: [1.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y + hy, z - hz],
+                tex_coords: [1.0, 0.0],
+                color: c,
+            });
         }
         Face::West => {
-            vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y - hy, z - hz], tex_coords: [0.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y + hy, z - hz], tex_coords: [0.0, 0.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y - hy, z + hz], tex_coords: [1.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x - hx, y + hy, z + hz], tex_coords: [1.0, 0.0], color: c });
+            vertices.push(Vertex {
+                position: [x - hx, y + hy, z - hz],
+                tex_coords: [0.0, 0.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y - hy, z - hz],
+                tex_coords: [0.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y - hy, z + hz],
+                tex_coords: [1.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y + hy, z - hz],
+                tex_coords: [0.0, 0.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y - hy, z + hz],
+                tex_coords: [1.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x - hx, y + hy, z + hz],
+                tex_coords: [1.0, 0.0],
+                color: c,
+            });
         }
         Face::East => {
-            vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y - hy, z + hz], tex_coords: [0.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y + hy, z + hz], tex_coords: [0.0, 0.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y - hy, z - hz], tex_coords: [1.0, 1.0], color: c });
-            vertices.push(Vertex { position: [x + hx, y + hy, z - hz], tex_coords: [1.0, 0.0], color: c });
+            vertices.push(Vertex {
+                position: [x + hx, y + hy, z + hz],
+                tex_coords: [0.0, 0.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y - hy, z + hz],
+                tex_coords: [0.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y - hy, z - hz],
+                tex_coords: [1.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y + hy, z + hz],
+                tex_coords: [0.0, 0.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y - hy, z - hz],
+                tex_coords: [1.0, 1.0],
+                color: c,
+            });
+            vertices.push(Vertex {
+                position: [x + hx, y + hy, z - hz],
+                tex_coords: [1.0, 0.0],
+                color: c,
+            });
         }
     }
 }
@@ -449,32 +965,92 @@ impl SpriteBatcher {
     }
 
     /// Adds a 3D cube/block to the batcher with separate top and side textures.
-    pub fn add_cube(&mut self, position: glam::Vec3, size: glam::Vec3, side_texture_id: usize, top_texture_id: usize) {
-        self.add_item(BatchItem::CubeSides { position, size, texture_id: side_texture_id });
-        self.add_item(BatchItem::CubeTop { position, size, texture_id: top_texture_id });
+    pub fn add_cube(
+        &mut self,
+        position: glam::Vec3,
+        size: glam::Vec3,
+        side_texture_id: usize,
+        top_texture_id: usize,
+    ) {
+        self.add_item(BatchItem::CubeSides {
+            position,
+            size,
+            texture_id: side_texture_id,
+        });
+        self.add_item(BatchItem::CubeTop {
+            position,
+            size,
+            texture_id: top_texture_id,
+        });
     }
 
     /// Adds a single cube face to the batcher. Used by face-culled terrain
     /// meshing to emit only the faces that are actually visible.
-    pub fn add_face(&mut self, position: glam::Vec3, size: glam::Vec3, face: Face, texture_id: usize) {
-        self.add_item(BatchItem::CubeFace { position, size, face, texture_id });
+    pub fn add_face(
+        &mut self,
+        position: glam::Vec3,
+        size: glam::Vec3,
+        face: Face,
+        texture_id: usize,
+    ) {
+        self.add_item(BatchItem::CubeFace {
+            position,
+            size,
+            face,
+            texture_id,
+        });
     }
 
     /// Adds a flat, upward-facing overlay quad at `position.y` drawn with the
     /// given (possibly translucent) `color`. Useful for ground decals.
-    pub fn add_overlay_quad(&mut self, position: glam::Vec3, size: glam::Vec3, color: [f32; 4], texture_id: usize) {
-        self.add_item(BatchItem::OverlayQuad { position, size, color, texture_id });
+    pub fn add_overlay_quad(
+        &mut self,
+        position: glam::Vec3,
+        size: glam::Vec3,
+        color: [f32; 4],
+        texture_id: usize,
+    ) {
+        self.add_item(BatchItem::OverlayQuad {
+            position,
+            size,
+            color,
+            texture_id,
+        });
     }
 
     /// Adds a flat, upward-facing overlay circle at `position.y` drawn with the
     /// given (possibly translucent) `color`. Useful for range indicators.
-    pub fn add_overlay_circle(&mut self, position: glam::Vec3, radius: f32, color: [f32; 4], texture_id: usize) {
-        self.add_item(BatchItem::OverlayCircle { position, radius, color, texture_id });
+    pub fn add_overlay_circle(
+        &mut self,
+        position: glam::Vec3,
+        radius: f32,
+        color: [f32; 4],
+        texture_id: usize,
+    ) {
+        self.add_item(BatchItem::OverlayCircle {
+            position,
+            radius,
+            color,
+            texture_id,
+        });
     }
 
     /// Adds a single cube face tinted with an arbitrary `color`.
-    pub fn add_color_face(&mut self, position: glam::Vec3, size: glam::Vec3, face: Face, color: [f32; 4], texture_id: usize) {
-        self.add_item(BatchItem::ColorFace { position, size, face, color, texture_id });
+    pub fn add_color_face(
+        &mut self,
+        position: glam::Vec3,
+        size: glam::Vec3,
+        face: Face,
+        color: [f32; 4],
+        texture_id: usize,
+    ) {
+        self.add_item(BatchItem::ColorFace {
+            position,
+            size,
+            face,
+            color,
+            texture_id,
+        });
     }
 
     /// Adds a translucent highlight "shell" around a box centred at `center`
@@ -483,15 +1059,30 @@ impl SpriteBatcher {
     ///
     /// This works for anything occupying a box in the world — a terrain block,
     /// or a tower floating above the ground — so the same call highlights both.
-    pub fn add_highlight_box(&mut self, center: glam::Vec3, size: glam::Vec3, color: [f32; 4], texture_id: usize) {
+    pub fn add_highlight_box(
+        &mut self,
+        center: glam::Vec3,
+        size: glam::Vec3,
+        color: [f32; 4],
+        texture_id: usize,
+    ) {
         for face in [Face::Top, Face::North, Face::South, Face::East, Face::West] {
-            self.add_item(BatchItem::ColorFace { position: center, size, face, color, texture_id });
+            self.add_item(BatchItem::ColorFace {
+                position: center,
+                size,
+                face,
+                color,
+                texture_id,
+            });
         }
     }
 
     /// Adds pre-transformed model vertices to the batcher.
     pub fn add_model(&mut self, vertices: Vec<Vertex>, texture_id: usize) {
-        self.add_item(BatchItem::Model { vertices, texture_id });
+        self.add_item(BatchItem::Model {
+            vertices,
+            texture_id,
+        });
     }
 
     /// Returns a slice of the compiled batches.
@@ -544,7 +1135,8 @@ impl SpriteBatcher {
         if required_capacity > self.vertex_buffer_capacity {
             // Allocate with some padding to minimize future re-allocations
             let new_capacity = required_capacity.next_power_of_two().max(512);
-            let size_in_bytes = (new_capacity * std::mem::size_of::<Vertex>()) as wgpu::BufferAddress;
+            let size_in_bytes =
+                (new_capacity * std::mem::size_of::<Vertex>()) as wgpu::BufferAddress;
 
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("SpriteBatcher Dynamic Vertex Buffer"),
@@ -578,7 +1170,10 @@ mod tests {
     #[test]
     fn test_batch_item_texture_id() {
         let sprite = Sprite::new(glam::Vec3::ZERO, glam::Vec2::ONE, 42, 0.0);
-        let item1 = BatchItem::Sprite { sprite, alignment: SpriteAlignment::Horizontal };
+        let item1 = BatchItem::Sprite {
+            sprite,
+            alignment: SpriteAlignment::Horizontal,
+        };
         assert_eq!(item1.texture_id(), 42);
 
         let item2 = BatchItem::CubeSides {
@@ -611,7 +1206,7 @@ mod tests {
         let mut vertices = Vec::new();
         sides.generate_vertices(&mut vertices);
         top.generate_vertices(&mut vertices);
-        
+
         // Sides = 5 faces * 6 = 30, Top = 1 face * 6 = 6, Total = 36
         assert_eq!(vertices.len(), 36);
 
@@ -655,7 +1250,7 @@ mod tests {
         assert_eq!(batches[2].texture_id, 2);
         assert_eq!(batches[2].vertex_offset, 42);
         assert_eq!(batches[2].vertex_count, 12);
-        
+
         // Total = 30 + 12 + 12 = 54
         assert_eq!(batcher.vertices.len(), 54);
     }
@@ -663,7 +1258,14 @@ mod tests {
     #[test]
     fn test_cube_face_vertex_count() {
         // Every single face must emit exactly 6 vertices (two triangles).
-        for face in [Face::Top, Face::Bottom, Face::North, Face::South, Face::East, Face::West] {
+        for face in [
+            Face::Top,
+            Face::Bottom,
+            Face::North,
+            Face::South,
+            Face::East,
+            Face::West,
+        ] {
             let item = BatchItem::CubeFace {
                 position: glam::Vec3::new(1.0, 2.0, 3.0),
                 size: glam::Vec3::new(2.0, 2.0, 2.0),
@@ -686,10 +1288,20 @@ mod tests {
         let size = glam::Vec3::new(2.0, 2.0, 2.0);
 
         let mut a = Vec::new();
-        BatchItem::CubeTop { position: pos, size, texture_id: 0 }.generate_vertices(&mut a);
+        BatchItem::CubeTop {
+            position: pos,
+            size,
+            texture_id: 0,
+        }
+        .generate_vertices(&mut a);
         let mut b = Vec::new();
-        BatchItem::CubeFace { position: pos, size, face: Face::Top, texture_id: 0 }
-            .generate_vertices(&mut b);
+        BatchItem::CubeFace {
+            position: pos,
+            size,
+            face: Face::Top,
+            texture_id: 0,
+        }
+        .generate_vertices(&mut b);
 
         let pa: Vec<_> = a.iter().map(|v| v.position).collect();
         let pb: Vec<_> = b.iter().map(|v| v.position).collect();
@@ -704,7 +1316,12 @@ mod tests {
         let size = glam::Vec3::new(2.0, 2.0, 2.0);
 
         let mut full = Vec::new();
-        BatchItem::CubeSides { position: pos, size, texture_id: 0 }.generate_vertices(&mut full);
+        BatchItem::CubeSides {
+            position: pos,
+            size,
+            texture_id: 0,
+        }
+        .generate_vertices(&mut full);
         // CubeSides = front, back, left, right, bottom = 5 faces * 6 = 30.
         // The first 24 vertices are the four lateral faces (bottom is last).
         let lateral: Vec<_> = full.iter().take(24).map(|v| v.position).collect();
@@ -712,8 +1329,13 @@ mod tests {
         let mut sides = Vec::new();
         // Order matters: CubeSides emits front(+Z), back(-Z), left(-X), right(+X).
         for face in [Face::South, Face::North, Face::West, Face::East] {
-            BatchItem::CubeFace { position: pos, size, face, texture_id: 0 }
-                .generate_vertices(&mut sides);
+            BatchItem::CubeFace {
+                position: pos,
+                size,
+                face,
+                texture_id: 0,
+            }
+            .generate_vertices(&mut sides);
         }
         let sides: Vec<_> = sides.iter().map(|v| v.position).collect();
 
@@ -749,12 +1371,31 @@ mod tests {
         let size = glam::Vec3::new(2.0, 2.0, 2.0);
         let tint = [1.0, 0.9, 0.3, 0.45];
 
-        for face in [Face::Top, Face::North, Face::South, Face::East, Face::West, Face::Bottom] {
+        for face in [
+            Face::Top,
+            Face::North,
+            Face::South,
+            Face::East,
+            Face::West,
+            Face::Bottom,
+        ] {
             let mut a = Vec::new();
-            BatchItem::CubeFace { position: pos, size, face, texture_id: 0 }.generate_vertices(&mut a);
+            BatchItem::CubeFace {
+                position: pos,
+                size,
+                face,
+                texture_id: 0,
+            }
+            .generate_vertices(&mut a);
             let mut b = Vec::new();
-            BatchItem::ColorFace { position: pos, size, face, color: tint, texture_id: 0 }
-                .generate_vertices(&mut b);
+            BatchItem::ColorFace {
+                position: pos,
+                size,
+                face,
+                color: tint,
+                texture_id: 0,
+            }
+            .generate_vertices(&mut b);
 
             let pa: Vec<_> = a.iter().map(|v| v.position).collect();
             let pb: Vec<_> = b.iter().map(|v| v.position).collect();
@@ -792,7 +1433,11 @@ mod tests {
         batcher.compile_batches();
 
         let batches = batcher.batches();
-        assert_eq!(batches.len(), 1, "same texture_id should merge into one batch");
+        assert_eq!(
+            batches.len(),
+            1,
+            "same texture_id should merge into one batch"
+        );
         assert_eq!(batches[0].texture_id, 4);
         assert_eq!(batches[0].vertex_count, 12);
     }

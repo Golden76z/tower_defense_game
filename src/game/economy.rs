@@ -57,7 +57,7 @@ mod tests {
         let mut economy = Economy::new(100);
         economy.add_money(50);
         assert_eq!(economy.money, 150);
-        
+
         assert!(economy.purchase(120));
         assert_eq!(economy.money, 30);
     }

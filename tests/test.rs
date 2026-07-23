@@ -4,7 +4,7 @@ use glam::{Mat4, Vec3, Vec4};
 fn test_vertex_projection() {
     let width = 800;
     let height = 600;
-    
+
     // Camera view-proj
     let eye = Vec3::new(2.0, 2.0, 2.0);
     let target = Vec3::ZERO;
@@ -51,13 +51,13 @@ fn test_vertex_projection() {
 
 #[test]
 fn test_batcher_performance_and_correctness() {
-    use tower_defense_lib::renderer::batch::SpriteBatcher;
-    use tower_defense_lib::renderer::sprite::{Sprite, SpriteAlignment};
     use glam::{Vec2, Vec3};
     use std::time::Instant;
+    use tower_defense_lib::renderer::batch::SpriteBatcher;
+    use tower_defense_lib::renderer::sprite::{Sprite, SpriteAlignment};
 
     let mut batcher = SpriteBatcher::new();
-    
+
     // Add 500 sprites and 500 cubes (total 1000 items)
     // Alternate texture IDs 0, 1, 2, 3 to test sorting
     let num_sprites = 500;
@@ -95,7 +95,7 @@ fn test_batcher_performance_and_correctness() {
 
     // Verify batches
     let batches = batcher.batches();
-    
+
     // Texture IDs 0-3 used by sprites and cube sides/tops
     // All 4 texture IDs should be present
     assert_eq!(batches.len(), 4);
@@ -115,7 +115,11 @@ fn test_batcher_performance_and_correctness() {
     assert_eq!(batcher.vertices().len(), 21000);
 
     // Performance assertion: Compilation on CPU should be extremely fast (under 10ms, usually <1ms)
-    assert!(duration_compile.as_millis() < 10, "Compilation took too long: {:?}", duration_compile);
+    assert!(
+        duration_compile.as_millis() < 10,
+        "Compilation took too long: {:?}",
+        duration_compile
+    );
 }
 
 #[test]
@@ -154,4 +158,3 @@ fn test_health_bar_color_interpolation() {
     assert_eq!(col_25[0], 1.0);
     assert!(col_25[1] > 0.0 && col_25[1] < 1.0);
 }
-

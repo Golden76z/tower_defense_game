@@ -1,5 +1,5 @@
-use glam::Vec2;
 use crate::game::map::path::Path;
+use glam::Vec2;
 
 /// Represents an enemy in the game.
 ///
@@ -59,6 +59,7 @@ pub trait Enemy {
     /// Applies damage to the enemy.
     ///
     /// * `amount`: The amount of damage to take.
+    ///
     /// Returns `true` if the enemy is still alive after taking damage, `false` otherwise.
     fn take_damage(&mut self, amount: f32) -> bool;
 
@@ -95,5 +96,3 @@ pub trait Enemy {
     /// Gets the path this enemy is following.
     fn get_path(&self) -> Option<&crate::game::map::path::Path>;
 }
-
-

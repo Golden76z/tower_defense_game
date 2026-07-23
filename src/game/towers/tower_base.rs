@@ -1,7 +1,7 @@
-use glam::Vec2;
 use crate::game::enemies::enemy_base::Enemy;
 use crate::game::projectiles::Projectile;
 use crate::game::towers::manager::TowerType;
+use glam::Vec2;
 
 /// Represents a tower in the game.
 ///
@@ -53,6 +53,7 @@ pub trait Tower {
     ///
     /// * `dt`: The elapsed time since the last frame.
     /// * `enemies`: A slice of current enemies in the game.
+    ///
     /// Returns an `Option<Projectile>` if the tower fires, otherwise `None`.
     fn update(
         &mut self,

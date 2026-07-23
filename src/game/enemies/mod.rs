@@ -1,5 +1,5 @@
-pub mod enemy_base;
 pub mod basic_enemy;
+pub mod enemy_base;
 pub mod fast_enemy;
 
 use crate::game::map::path::Path;

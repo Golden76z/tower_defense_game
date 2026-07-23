@@ -1,7 +1,7 @@
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Source};
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Source};
 
 pub struct AudioSystem {
     _stream: Option<OutputStream>,
@@ -17,10 +17,16 @@ pub struct AudioSystem {
     _music_data: Option<Vec<u8>>,
 }
 
+impl Default for AudioSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AudioSystem {
     pub fn new() -> Self {
         log::info!("Initializing AudioSystem...");
-        
+
         // Ensure assets/sounds/ exists
         let sounds_dir = Path::new("assets/sounds");
         if !sounds_dir.exists() {
@@ -31,7 +37,8 @@ impl AudioSystem {
 
         // Load or generate assets
         let shoot_data = Self::load_or_generate(sounds_dir.join("shoot.wav"), SoundPreset::Shoot);
-        let explosion_data = Self::load_or_generate(sounds_dir.join("explosion.wav"), SoundPreset::Explosion);
+        let explosion_data =
+            Self::load_or_generate(sounds_dir.join("explosion.wav"), SoundPreset::Explosion);
         let place_data = Self::load_or_generate(sounds_dir.join("place.wav"), SoundPreset::Place);
         let click_data = Self::load_or_generate(sounds_dir.join("click.wav"), SoundPreset::Click);
         let music_data = Self::load_or_generate(sounds_dir.join("music.wav"), SoundPreset::Music);
@@ -178,7 +185,11 @@ impl AudioSystem {
                     return Some(bytes);
                 }
                 Err(e) => {
-                    log::error!("Failed to read sound file at {:?}: {}, regenerating...", path, e);
+                    log::error!(
+                        "Failed to read sound file at {:?}: {}, regenerating...",
+                        path,
+                        e
+                    );
                 }
             }
         }
@@ -226,22 +237,22 @@ impl SoundPreset {
                 let duration = 0.4;
                 let num_samples = (sample_rate as f32 * duration) as usize;
                 let mut samples = Vec::with_capacity(num_samples);
-                
+
                 // Simple RNG LCG to produce white noise
                 let mut seed = 12345u32;
                 let mut last_out = 0.0f32;
                 let alpha = 0.12f32; // Cutoff coefficient for low rumble
-                
+
                 for i in 0..num_samples {
                     let t = i as f32 / sample_rate as f32;
                     let progress = t / duration;
-                    
+
                     seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
                     let noise = ((seed >> 16) & 0xFFFF) as f32 / 65535.0 * 2.0 - 1.0;
-                    
+
                     let filtered = alpha * noise + (1.0 - alpha) * last_out;
                     last_out = filtered;
-                    
+
                     let amp = (1.0 - progress).powi(2);
                     let sample = (filtered * amp * 15000.0) as i16;
                     samples.push(sample);
@@ -258,7 +269,7 @@ impl SoundPreset {
                     let progress = t / duration;
                     let freq = 300.0 + progress * 300.0;
                     phase += 2.0 * std::f32::consts::PI * freq / sample_rate as f32;
-                    
+
                     let amp = if progress < 0.2 {
                         progress / 0.2
                     } else {
@@ -289,40 +300,40 @@ impl SoundPreset {
                 let duration = 8.0; // 8 seconds
                 let num_samples = (sample_rate as f32 * duration) as usize;
                 let mut samples = Vec::with_capacity(num_samples);
-                
+
                 let melody_freqs = [
                     261.63, 329.63, 392.00, 523.25, // C4, E4, G4, C5
                     220.00, 261.63, 329.63, 440.00, // A3, C4, E4, A4
                     174.61, 220.00, 261.63, 349.23, // F3, A3, C4, F4
-                    196.00, 246.94, 293.66, 392.00  // G3, B3, D4, G4
+                    196.00, 246.94, 293.66, 392.00, // G3, B3, D4, G4
                 ];
                 let bass_freqs = [
-                    65.41,  // C2
-                    55.00,  // A1
-                    43.65,  // F1
-                    49.00   // G1
+                    65.41, // C2
+                    55.00, // A1
+                    43.65, // F1
+                    49.00, // G1
                 ];
-                
+
                 let mut melody_phase = 0.0f32;
                 let mut bass_phase = 0.0f32;
-                
+
                 for i in 0..num_samples {
                     let t = i as f32 / sample_rate as f32;
                     let beat = (t / 0.5) as usize % 16;
                     let t_beat = t % 0.5;
-                    
+
                     let m_freq = melody_freqs[beat];
                     melody_phase += 2.0 * std::f32::consts::PI * m_freq / sample_rate as f32;
-                    
+
                     let b_freq = bass_freqs[beat / 4];
                     bass_phase += 2.0 * std::f32::consts::PI * b_freq / sample_rate as f32;
-                    
+
                     // Pluck envelope for melody: starts fast, decays exponentially
                     let melody_amp = (-12.0 * t_beat).exp();
-                    
+
                     // Simple sine melody
                     let melody_val = melody_phase.sin() * melody_amp;
-                    
+
                     // Bass note (triangle wave or soft sine, held for 4 beats)
                     // Let's use a soft sine wave with a slower attack/decay
                     let t_chord = t % 2.0;
@@ -332,7 +343,7 @@ impl SoundPreset {
                         ((2.0 - t_chord) / 1.8).clamp(0.0, 1.0)
                     };
                     let bass_val = bass_phase.sin() * bass_amp * 0.7;
-                    
+
                     // Mix them
                     let mixed = (melody_val * 0.4 + bass_val * 0.6) * 10000.0;
                     samples.push(mixed as i16);
@@ -350,7 +361,7 @@ fn generate_wav_bytes(samples: &[i16], sample_rate: u32) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(44 + samples.len() * 2);
     let subchunk2_size = (samples.len() * 2) as u32;
     let chunk_size = 36 + subchunk2_size;
-    
+
     bytes.extend_from_slice(b"RIFF");
     bytes.extend_from_slice(&chunk_size.to_le_bytes());
     bytes.extend_from_slice(b"WAVE");
@@ -359,17 +370,17 @@ fn generate_wav_bytes(samples: &[i16], sample_rate: u32) -> Vec<u8> {
     bytes.extend_from_slice(&1u16.to_le_bytes()); // AudioFormat = 1 PCM
     bytes.extend_from_slice(&1u16.to_le_bytes()); // NumChannels = 1 Mono
     bytes.extend_from_slice(&sample_rate.to_le_bytes());
-    let byte_rate = sample_rate * 1 * 2;
+    let byte_rate = sample_rate * 2;
     bytes.extend_from_slice(&byte_rate.to_le_bytes());
     bytes.extend_from_slice(&2u16.to_le_bytes()); // BlockAlign = 2
     bytes.extend_from_slice(&16u16.to_le_bytes()); // BitsPerSample = 16
     bytes.extend_from_slice(b"data");
     bytes.extend_from_slice(&subchunk2_size.to_le_bytes());
-    
+
     for &sample in samples {
         bytes.extend_from_slice(&sample.to_le_bytes());
     }
-    
+
     bytes
 }
 
@@ -403,7 +414,7 @@ mod tests {
         let mut sys = AudioSystem::new();
         assert_eq!(sys.volume, 0.5);
         assert_eq!(sys.music_volume, 0.3);
-        assert_eq!(sys.music_muted, false);
+        assert!(!sys.music_muted);
         assert!(sys.shoot_data.is_some());
         assert!(sys.explosion_data.is_some());
         assert!(sys.place_data.is_some());

@@ -1,5 +1,5 @@
-use glam::{Vec2, Vec3};
 use crate::renderer::Vertex;
+use glam::{Vec2, Vec3};
 
 /// Specifies how the sprite is aligned in the 3D isometric world.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +35,13 @@ impl Sprite {
     }
 
     /// Creates a new `Sprite` with the given parameters and color.
-    pub fn new_colored(position: Vec3, size: Vec2, texture_id: usize, rotation: f32, color: [f32; 4]) -> Self {
+    pub fn new_colored(
+        position: Vec3,
+        size: Vec2,
+        texture_id: usize,
+        rotation: f32,
+        color: [f32; 4],
+    ) -> Self {
         Self {
             position,
             size,
@@ -115,19 +121,51 @@ impl Sprite {
         // 2. Project corners into 3D space based on alignment and translate by position
         let (tl_pos, bl_pos, br_pos, tr_pos) = match alignment {
             SpriteAlignment::Horizontal => {
-                let tl = [self.position.x + tl_2d.x, self.position.y, self.position.z - tl_2d.y];
-                let bl = [self.position.x + bl_2d.x, self.position.y, self.position.z - bl_2d.y];
-                let br = [self.position.x + br_2d.x, self.position.y, self.position.z - br_2d.y];
-                let tr = [self.position.x + tr_2d.x, self.position.y, self.position.z - tr_2d.y];
+                let tl = [
+                    self.position.x + tl_2d.x,
+                    self.position.y,
+                    self.position.z - tl_2d.y,
+                ];
+                let bl = [
+                    self.position.x + bl_2d.x,
+                    self.position.y,
+                    self.position.z - bl_2d.y,
+                ];
+                let br = [
+                    self.position.x + br_2d.x,
+                    self.position.y,
+                    self.position.z - br_2d.y,
+                ];
+                let tr = [
+                    self.position.x + tr_2d.x,
+                    self.position.y,
+                    self.position.z - tr_2d.y,
+                ];
                 (tl, bl, br, tr)
             }
             SpriteAlignment::Vertical => {
                 // To fix the back-face culling for Vertical, we should ensure the normal faces +Z.
                 // However, we swap it here if needed, but for now we leave it as X-Y plane.
-                let tl = [self.position.x + tl_2d.x, self.position.y + tl_2d.y, self.position.z];
-                let bl = [self.position.x + bl_2d.x, self.position.y + bl_2d.y, self.position.z];
-                let br = [self.position.x + br_2d.x, self.position.y + br_2d.y, self.position.z];
-                let tr = [self.position.x + tr_2d.x, self.position.y + tr_2d.y, self.position.z];
+                let tl = [
+                    self.position.x + tl_2d.x,
+                    self.position.y + tl_2d.y,
+                    self.position.z,
+                ];
+                let bl = [
+                    self.position.x + bl_2d.x,
+                    self.position.y + bl_2d.y,
+                    self.position.z,
+                ];
+                let br = [
+                    self.position.x + br_2d.x,
+                    self.position.y + br_2d.y,
+                    self.position.z,
+                ];
+                let tr = [
+                    self.position.x + tr_2d.x,
+                    self.position.y + tr_2d.y,
+                    self.position.z,
+                ];
                 (tl, bl, br, tr)
             }
             SpriteAlignment::Billboard => {
@@ -136,7 +174,7 @@ impl Sprite {
                 // The up vector is cross(right, camera_dir) = (-1, 2, -1).
                 let right = glam::Vec3::new(1.0, 0.0, -1.0).normalize();
                 let up = glam::Vec3::new(-1.0, 2.0, -1.0).normalize();
-                
+
                 let tl = self.position + right * tl_2d.x + up * tl_2d.y;
                 let bl = self.position + right * bl_2d.x + up * bl_2d.y;
                 let br = self.position + right * br_2d.x + up * br_2d.y;
@@ -189,10 +227,7 @@ impl Sprite {
 fn rotate_2d_point(x: f32, y: f32, angle_rad: f32) -> Vec2 {
     let cos = angle_rad.cos();
     let sin = angle_rad.sin();
-    Vec2::new(
-        x * cos - y * sin,
-        x * sin + y * cos,
-    )
+    Vec2::new(x * cos - y * sin, x * sin + y * cos)
 }
 
 impl Default for Sprite {
@@ -238,7 +273,7 @@ mod tests {
         let new_pos = Vec3::new(-1.0, 5.5, 10.0);
         sprite.set_position(new_pos);
         assert_eq!(sprite.position(), new_pos);
-        
+
         let translation = Vec3::new(2.0, -1.0, 0.5);
         sprite.translate(translation);
         assert_eq!(sprite.position(), Vec3::new(1.0, 4.5, 10.5));
@@ -247,16 +282,16 @@ mod tests {
     #[test]
     fn test_sprite_transformations() {
         let mut sprite = Sprite::default();
-        
+
         sprite.set_size(Vec2::new(2.0, 3.0));
         assert_eq!(sprite.size(), Vec2::new(2.0, 3.0));
-        
+
         sprite.set_texture_id(5);
         assert_eq!(sprite.texture_id(), 5);
-        
+
         sprite.set_rotation(1.0);
         assert_eq!(sprite.rotation(), 1.0);
-        
+
         sprite.rotate(0.5);
         assert_eq!(sprite.rotation(), 1.5);
     }
@@ -326,7 +361,7 @@ mod tests {
     #[test]
     fn test_vertex_generation_rotation() {
         use std::f32::consts::FRAC_PI_2;
-        
+
         let sprite = Sprite::new(Vec3::ZERO, Vec2::new(2.0, 2.0), 0, FRAC_PI_2);
         let vertices = sprite.generate_vertices(); // Horizontal (X-Z plane)
 

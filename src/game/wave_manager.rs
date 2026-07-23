@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnemyType {
@@ -26,7 +26,6 @@ pub enum WaveState {
     InterWaveDelay,
     CompletedAll,
 }
-
 
 pub struct WaveManager {
     pub waves: Vec<Wave>,
@@ -124,8 +123,14 @@ impl WaveManager {
         match self.state {
             WaveState::NotStarted => "Waiting to start".to_string(),
             WaveState::Spawning => format!("Wave {} - Spawning", self.current_wave_number()),
-            WaveState::WaitingForClean => format!("Wave {} - In progress", self.current_wave_number()),
-            WaveState::InterWaveDelay => format!("Wave {} complete! Next wave in {:.1}s", self.current_wave_number(), self.inter_wave_timer),
+            WaveState::WaitingForClean => {
+                format!("Wave {} - In progress", self.current_wave_number())
+            }
+            WaveState::InterWaveDelay => format!(
+                "Wave {} complete! Next wave in {:.1}s",
+                self.current_wave_number(),
+                self.inter_wave_timer
+            ),
             WaveState::CompletedAll => "VICTORY! All waves completed".to_string(),
         }
     }
@@ -134,6 +139,13 @@ impl WaveManager {
         match self.state {
             WaveState::NotStarted => None,
             WaveState::Spawning => {
+                // A restored or corrupt save can leave current_wave_index past
+                // the end of the wave list; treat that as "all waves done"
+                // instead of panicking on the index below.
+                if self.current_wave_index >= self.waves.len() {
+                    self.state = WaveState::CompletedAll;
+                    return None;
+                }
                 let wave = &self.waves[self.current_wave_index];
                 if self.current_spawn_index >= wave.enemy_spawns.len() {
                     self.state = WaveState::WaitingForClean;
@@ -273,6 +285,18 @@ mod tests {
 
         // Wave 2 finishes
         assert_eq!(manager.update(0.1, 0), None);
+        assert_eq!(manager.state, WaveState::CompletedAll);
+    }
+
+    #[test]
+    fn spawning_with_out_of_range_wave_index_recovers_without_panicking() {
+        // Regression: restoring a corrupt/old save with wave_state = Spawning
+        // and current_wave_index past the end of the wave list used to panic on
+        // the first update tick (unchecked index into `waves`).
+        let mut manager = WaveManager::new(WaveManager::get_default_waves());
+        manager.state = WaveState::Spawning;
+        manager.current_wave_index = manager.waves.len(); // out of range
+        assert_eq!(manager.update(0.016, 0), None);
         assert_eq!(manager.state, WaveState::CompletedAll);
     }
 }

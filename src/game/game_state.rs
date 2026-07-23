@@ -1,16 +1,11 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GameState {
+    #[default]
     MainMenu,
     Playing,
     Paused,
     GameOver,
     Victory,
-}
-
-impl Default for GameState {
-    fn default() -> Self {
-        Self::MainMenu
-    }
 }
 
 impl GameState {
@@ -41,8 +36,14 @@ mod tests {
 
     #[test]
     fn test_transition_on_start() {
-        assert_eq!(GameState::MainMenu.transition_on_start(), GameState::Playing);
-        assert_eq!(GameState::GameOver.transition_on_start(), GameState::Playing);
+        assert_eq!(
+            GameState::MainMenu.transition_on_start(),
+            GameState::Playing
+        );
+        assert_eq!(
+            GameState::GameOver.transition_on_start(),
+            GameState::Playing
+        );
         assert_eq!(GameState::Victory.transition_on_start(), GameState::Playing);
         assert_eq!(GameState::Playing.transition_on_start(), GameState::Playing);
     }
@@ -51,6 +52,9 @@ mod tests {
     fn test_transition_on_escape() {
         assert_eq!(GameState::Playing.transition_on_escape(), GameState::Paused);
         assert_eq!(GameState::Paused.transition_on_escape(), GameState::Playing);
-        assert_eq!(GameState::MainMenu.transition_on_escape(), GameState::MainMenu);
+        assert_eq!(
+            GameState::MainMenu.transition_on_escape(),
+            GameState::MainMenu
+        );
     }
 }

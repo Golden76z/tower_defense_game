@@ -1,6 +1,6 @@
-use glam::Vec2;
-use crate::game::map::path::Path;
 use crate::game::enemies::enemy_base::Enemy;
+use crate::game::map::path::Path;
+use glam::Vec2;
 
 /// A basic enemy type with simple path following and health.
 pub struct BasicEnemy {
@@ -11,7 +11,6 @@ pub struct BasicEnemy {
     pub waypoint_index: usize,
     pub path: Option<Path>,
 }
-
 
 impl BasicEnemy {
     /// Creates a new basic enemy at the given starting position.
@@ -110,8 +109,6 @@ impl Enemy for BasicEnemy {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,7 +154,7 @@ mod tests {
 
         // Move another 4 seconds (8 units). Position should be (10.0, 0.0).
         enemy.update(4.0, &path);
-        
+
         // At this exact moment, it's at (10, 0), so it should snap and move on the next update
         enemy.update(0.1, &path);
         // It should have snapped to (10,0) and started moving along Y axis towards (10,10)

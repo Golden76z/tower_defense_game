@@ -196,7 +196,8 @@ impl MapData {
             super::path::Path::new(self.path.iter().map(|p| Vec2::new(p[0], p[1])).collect());
 
         if !self.paths.is_empty() {
-            map.paths = self.paths
+            map.paths = self
+                .paths
                 .iter()
                 .map(|p_coords| {
                     super::path::Path::new(p_coords.iter().map(|p| Vec2::new(p[0], p[1])).collect())
@@ -278,7 +279,10 @@ mod tests {
         let json = r#"{ "width": 2, "height": 3, "tiles": [[0, 0], [0, 0]] }"#;
         assert!(matches!(
             load_map_from_str(json),
-            Err(MapLoadError::RowCountMismatch { expected: 3, found: 2 })
+            Err(MapLoadError::RowCountMismatch {
+                expected: 3,
+                found: 2
+            })
         ));
     }
 
@@ -287,7 +291,11 @@ mod tests {
         let json = r#"{ "width": 3, "height": 1, "tiles": [[0, 0]] }"#;
         assert!(matches!(
             load_map_from_str(json),
-            Err(MapLoadError::RowLengthMismatch { row: 0, expected: 3, found: 2 })
+            Err(MapLoadError::RowLengthMismatch {
+                row: 0,
+                expected: 3,
+                found: 2
+            })
         ));
     }
 
@@ -296,7 +304,11 @@ mod tests {
         let json = r#"{ "width": 2, "height": 1, "tiles": [[0, 9]] }"#;
         assert!(matches!(
             load_map_from_str(json),
-            Err(MapLoadError::UnknownTile { row: 0, col: 1, id: 9 })
+            Err(MapLoadError::UnknownTile {
+                row: 0,
+                col: 1,
+                id: 9
+            })
         ));
     }
 

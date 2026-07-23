@@ -16,8 +16,7 @@ impl Texture {
         bytes: &[u8],
         label: &str,
     ) -> Result<Self> {
-        let img = image::load_from_memory(bytes)
-            .context("Failed to load image from bytes")?;
+        let img = image::load_from_memory(bytes).context("Failed to load image from bytes")?;
         Self::from_image(device, queue, &img, Some(label))
     }
 
@@ -97,7 +96,7 @@ impl Texture {
     }
 
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-    
+
     pub fn create_depth_texture(
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,

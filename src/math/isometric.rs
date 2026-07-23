@@ -45,10 +45,12 @@ mod tests {
 
     fn assert_vec3_approx_eq(a: Vec3, b: Vec3) {
         assert!(
-            (a.x - b.x).abs() < EPSILON &&
-            (a.y - b.y).abs() < EPSILON &&
-            (a.z - b.z).abs() < EPSILON,
-            "Vectors are not approximately equal: {:?} vs {:?}", a, b
+            (a.x - b.x).abs() < EPSILON
+                && (a.y - b.y).abs() < EPSILON
+                && (a.z - b.z).abs() < EPSILON,
+            "Vectors are not approximately equal: {:?} vs {:?}",
+            a,
+            b
         );
     }
 
@@ -65,16 +67,28 @@ mod tests {
     #[test]
     fn test_world_to_screen_multiple_positions() {
         // Step in +X goes down-right
-        assert_eq!(world_to_screen(Vec3::new(1.0, 0.0, 0.0)), Vec2::new(32.0, 16.0));
-        
+        assert_eq!(
+            world_to_screen(Vec3::new(1.0, 0.0, 0.0)),
+            Vec2::new(32.0, 16.0)
+        );
+
         // Step in +Z goes down-left
-        assert_eq!(world_to_screen(Vec3::new(0.0, 0.0, 1.0)), Vec2::new(-32.0, 16.0));
-        
+        assert_eq!(
+            world_to_screen(Vec3::new(0.0, 0.0, 1.0)),
+            Vec2::new(-32.0, 16.0)
+        );
+
         // Step in +Y goes purely UP (negative Y in screen coords)
-        assert_eq!(world_to_screen(Vec3::new(0.0, 1.0, 0.0)), Vec2::new(0.0, -32.0));
-        
+        assert_eq!(
+            world_to_screen(Vec3::new(0.0, 1.0, 0.0)),
+            Vec2::new(0.0, -32.0)
+        );
+
         // Complex position
-        assert_eq!(world_to_screen(Vec3::new(2.0, 1.5, 3.0)), Vec2::new(-32.0, 32.0));
+        assert_eq!(
+            world_to_screen(Vec3::new(2.0, 1.5, 3.0)),
+            Vec2::new(-32.0, 32.0)
+        );
     }
 
     #[test]

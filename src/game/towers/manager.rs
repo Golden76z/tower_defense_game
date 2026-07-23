@@ -1,21 +1,20 @@
-use glam::Vec2;
-use crate::game::towers::tower_base::Tower;
-use crate::game::towers::basic_tower::BasicTower;
-use crate::game::towers::sniper_tower::SniperTower;
-use crate::game::projectiles::Projectile;
+use crate::game::economy::Economy;
 use crate::game::enemies::enemy_base::Enemy;
 use crate::game::map::map::Map;
 use crate::game::map::tile::TileType;
-use crate::game::economy::Economy;
+use crate::game::projectiles::Projectile;
+use crate::game::towers::basic_tower::BasicTower;
+use crate::game::towers::sniper_tower::SniperTower;
+use crate::game::towers::tower_base::Tower;
+use glam::Vec2;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TowerType {
     Basic,
     Sniper,
 }
-
 
 impl TowerType {
     pub fn cost(&self) -> i32 {
@@ -30,14 +29,24 @@ pub struct TowerManager {
     pub towers: Vec<Box<dyn Tower>>,
 }
 
+impl Default for TowerManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TowerManager {
     pub fn new() -> Self {
-        Self {
-            towers: Vec::new(),
-        }
+        Self { towers: Vec::new() }
     }
 
-    pub fn can_place_tower(&self, map: &Map, position: Vec2, tower_type: TowerType, economy: &Economy) -> Result<(), &'static str> {
+    pub fn can_place_tower(
+        &self,
+        map: &Map,
+        position: Vec2,
+        tower_type: TowerType,
+        economy: &Economy,
+    ) -> Result<(), &'static str> {
         let cost = tower_type.cost();
         if !economy.can_afford(cost) {
             return Err("Insufficient funds");
@@ -61,11 +70,17 @@ impl TowerManager {
                 return Err("Tower already exists at this location");
             }
         }
-        
+
         Ok(())
     }
 
-    pub fn place_tower(&mut self, map: &Map, position: Vec2, tower_type: TowerType, economy: &mut Economy) -> Result<(), &'static str> {
+    pub fn place_tower(
+        &mut self,
+        map: &Map,
+        position: Vec2,
+        tower_type: TowerType,
+        economy: &mut Economy,
+    ) -> Result<(), &'static str> {
         self.can_place_tower(map, position, tower_type, economy)?;
 
         let cost = tower_type.cost();
@@ -121,7 +136,7 @@ mod tests {
         let map = setup_map();
         let position = Vec2::new(1.0, 1.0);
         let mut economy = Economy::new(100);
-        
+
         let result = manager.place_tower(&map, position, TowerType::Basic, &mut economy);
         assert!(result.is_ok());
         assert_eq!(manager.towers.len(), 1);
@@ -133,7 +148,7 @@ mod tests {
         let map = setup_map();
         let position = Vec2::new(2.0, 2.0); // Path is at 2,2
         let mut economy = Economy::new(100);
-        
+
         let result = manager.place_tower(&map, position, TowerType::Basic, &mut economy);
         assert!(result.is_err());
         assert_eq!(manager.towers.len(), 0);
@@ -145,7 +160,7 @@ mod tests {
         let map = setup_map();
         let position = Vec2::new(10.0, 10.0);
         let mut economy = Economy::new(100);
-        
+
         let result = manager.place_tower(&map, position, TowerType::Basic, &mut economy);
         assert!(result.is_err());
         assert_eq!(manager.towers.len(), 0);
@@ -157,7 +172,7 @@ mod tests {
         let map = setup_map();
         let position = Vec2::new(1.0, 1.0);
         let mut economy = Economy::new(100);
-        
+
         assert!(manager.place_tower(&map, position, TowerType::Basic, &mut economy).is_ok());
         assert!(manager.place_tower(&map, position, TowerType::Basic, &mut economy).is_err());
         assert_eq!(manager.towers.len(), 1);
@@ -169,7 +184,7 @@ mod tests {
         let map = setup_map();
         let position = Vec2::new(1.0, 1.0);
         let mut economy = Economy::new(30); // Basic tower costs 50
-        
+
         let result = manager.place_tower(&map, position, TowerType::Basic, &mut economy);
         assert_eq!(result, Err("Insufficient funds"));
         assert_eq!(manager.towers.len(), 0);
@@ -182,7 +197,7 @@ mod tests {
         let map = setup_map();
         let position = Vec2::new(1.0, 1.0);
         let mut economy = Economy::new(100);
-        
+
         let result = manager.place_tower(&map, position, TowerType::Basic, &mut economy);
         assert!(result.is_ok());
         assert_eq!(economy.money, 50); // 100 - 50 = 50

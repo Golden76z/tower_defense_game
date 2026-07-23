@@ -25,14 +25,8 @@ fn loads_bundled_test_map() {
     }
 
     // It contains at least one path tile and at least one (non-walkable) rock.
-    let has_path = map
-        .tiles
-        .iter()
-        .any(|t| t.tile_type == TileType::Path && t.walkable);
-    let has_rock = map
-        .tiles
-        .iter()
-        .any(|t| t.tile_type == TileType::Rock && !t.walkable);
+    let has_path = map.tiles.iter().any(|t| t.tile_type == TileType::Path && t.walkable);
+    let has_rock = map.tiles.iter().any(|t| t.tile_type == TileType::Rock && !t.walkable);
     assert!(has_path, "test map should contain a path");
     assert!(has_rock, "test map should contain a rock obstacle");
 }
@@ -47,10 +41,12 @@ fn loads_path_waypoints_that_lie_on_path_tiles() {
 
     // Every waypoint must sit on a walkable Path tile so enemies can follow it.
     for wp in map.path.waypoints() {
-        let tile = map
-            .get_tile(wp.x as i32, wp.y as i32)
-            .expect("waypoint should be in bounds");
-        assert_eq!(tile.tile_type, TileType::Path, "waypoint {wp:?} off the path");
+        let tile = map.get_tile(wp.x as i32, wp.y as i32).expect("waypoint should be in bounds");
+        assert_eq!(
+            tile.tile_type,
+            TileType::Path,
+            "waypoint {wp:?} off the path"
+        );
         assert!(tile.walkable, "waypoint {wp:?} not walkable");
     }
 }

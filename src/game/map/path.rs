@@ -78,7 +78,12 @@ impl Path {
     }
 
     /// Like [`Path::reached_waypoint`] but with a caller-supplied radius.
-    pub fn reached_waypoint_within(&self, position: Vec2, waypoint_index: usize, radius: f32) -> bool {
+    pub fn reached_waypoint_within(
+        &self,
+        position: Vec2,
+        waypoint_index: usize,
+        radius: f32,
+    ) -> bool {
         match self.waypoints.get(waypoint_index) {
             Some(&target) => position.distance_squared(target) <= radius * radius,
             None => false,
@@ -125,18 +130,31 @@ mod tests {
         let path = example_path();
 
         // From the start toward (0,5): straight along +Y.
-        assert_dir(path.get_direction(Vec2::new(0.0, 0.0), 1), Vec2::new(0.0, 1.0));
+        assert_dir(
+            path.get_direction(Vec2::new(0.0, 0.0), 1),
+            Vec2::new(0.0, 1.0),
+        );
         // From (0,5) toward (5,5): straight along +X.
-        assert_dir(path.get_direction(Vec2::new(0.0, 5.0), 2), Vec2::new(1.0, 0.0));
+        assert_dir(
+            path.get_direction(Vec2::new(0.0, 5.0), 2),
+            Vec2::new(1.0, 0.0),
+        );
         // From (5,5) toward (5,10): +Y again.
-        assert_dir(path.get_direction(Vec2::new(5.0, 5.0), 3), Vec2::new(0.0, 1.0));
+        assert_dir(
+            path.get_direction(Vec2::new(5.0, 5.0), 3),
+            Vec2::new(0.0, 1.0),
+        );
     }
 
     #[test]
     fn direction_is_normalised_for_diagonals() {
         let path = Path::new(vec![Vec2::ZERO, Vec2::new(3.0, 4.0)]);
         let dir = path.get_direction(Vec2::ZERO, 1);
-        assert!((dir.length() - 1.0).abs() < 1e-5, "expected unit length, got {}", dir.length());
+        assert!(
+            (dir.length() - 1.0).abs() < 1e-5,
+            "expected unit length, got {}",
+            dir.length()
+        );
         assert_dir(dir, Vec2::new(0.6, 0.8)); // 3-4-5 triangle
     }
 

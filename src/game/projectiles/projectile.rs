@@ -11,7 +11,13 @@ pub struct Projectile {
 }
 
 impl Projectile {
-    pub fn new(position: Vec2, target_position: Vec2, speed: f32, damage: f32, spawn_height_offset: f32) -> Self {
+    pub fn new(
+        position: Vec2,
+        target_position: Vec2,
+        speed: f32,
+        damage: f32,
+        spawn_height_offset: f32,
+    ) -> Self {
         Self {
             start_position: position,
             position,
@@ -53,7 +59,7 @@ mod tests {
     #[test]
     fn test_projectile_movement() {
         let mut proj = Projectile::new(Vec2::ZERO, Vec2::new(10.0, 0.0), 5.0, 10.0, 0.8);
-        
+
         let reached = proj.update(1.0);
         assert!(!reached);
         assert_eq!(proj.position.x, 5.0);

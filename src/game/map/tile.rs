@@ -1,16 +1,11 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TileType {
+    #[default]
     Grass,
     Path,
     Rock,
     Water,
     Sand,
-}
-
-impl Default for TileType {
-    fn default() -> Self {
-        TileType::Grass
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,7 +52,7 @@ mod tests {
         assert_eq!(tile.grid_x, 0);
         assert_eq!(tile.grid_y, 0);
         assert_eq!(tile.grid_z, 0);
-        assert_eq!(tile.walkable, true);
+        assert!(tile.walkable);
     }
 
     #[test]
@@ -67,7 +62,7 @@ mod tests {
         assert_eq!(tile.grid_x, 1);
         assert_eq!(tile.grid_y, 2);
         assert_eq!(tile.grid_z, 3);
-        assert_eq!(tile.walkable, false);
+        assert!(!tile.walkable);
     }
 
     #[test]

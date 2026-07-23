@@ -1,8 +1,8 @@
-use glam::Vec2;
 use crate::game::enemies::enemy_base::Enemy;
 use crate::game::projectiles::Projectile;
-use crate::game::towers::tower_base::Tower;
 use crate::game::towers::manager::TowerType;
+use crate::game::towers::tower_base::Tower;
+use glam::Vec2;
 
 pub struct SniperTower {
     pub position: Vec2,
@@ -98,7 +98,13 @@ impl Tower for SniperTower {
                 // 0.75 = barrel height above the tile surface in tile units
                 // (tower model barrel at y~1.25 * tower render scale 0.6).
                 // Use a high speed of 25.0 for sniper shots.
-                return Some(Projectile::new(self.position, target.get_position(), 25.0, self.get_damage(), 0.75));
+                return Some(Projectile::new(
+                    self.position,
+                    target.get_position(),
+                    25.0,
+                    self.get_damage(),
+                    0.75,
+                ));
             }
         }
 
@@ -141,7 +147,7 @@ impl Tower for SniperTower {
     fn get_upgrade_cost(&self) -> Option<i32> {
         match self.level {
             1 => Some((self.cost / 2) as i32), // 50%
-            2 => Some(self.cost as i32),        // 100%
+            2 => Some(self.cost as i32),       // 100%
             _ => None,
         }
     }
@@ -212,7 +218,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_sniper_tower_initialization() {
         let tower = SniperTower::new(Vec2::new(1.0, 2.0));
@@ -229,9 +234,12 @@ mod tests {
         let enemies: Vec<Box<dyn Enemy>> = vec![
             Box::new(MockEnemy::new(Vec2::new(6.0, 6.0), 100.0)), // Distance ~8.48 < 12.0
         ];
-        
+
         let projectile = tower.update(0.1, &enemies, None, &mut Vec::new());
-        assert!(projectile.is_some(), "Sniper should shoot at enemy in range");
+        assert!(
+            projectile.is_some(),
+            "Sniper should shoot at enemy in range"
+        );
         assert_eq!(tower.cooldown, 1.0 / 0.3); // fire_rate is 0.3
     }
 
@@ -241,9 +249,12 @@ mod tests {
         let enemies: Vec<Box<dyn Enemy>> = vec![
             Box::new(MockEnemy::new(Vec2::new(10.0, 10.0), 100.0)), // Distance ~14.14 > 12.0
         ];
-        
+
         let projectile = tower.update(0.1, &enemies, None, &mut Vec::new());
-        assert!(projectile.is_none(), "Sniper should not shoot at enemy out of range");
+        assert!(
+            projectile.is_none(),
+            "Sniper should not shoot at enemy out of range"
+        );
         assert_eq!(tower.cooldown, 0.0);
     }
 

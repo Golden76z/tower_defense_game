@@ -1,7 +1,7 @@
-use glam::Vec2;
 use crate::game::enemies::enemy_base::Enemy;
 use crate::game::projectiles::Projectile;
 use crate::game::towers::tower_base::Tower;
+use glam::Vec2;
 
 pub struct BasicTower {
     pub position: Vec2,
@@ -96,7 +96,13 @@ impl Tower for BasicTower {
                 self.cooldown = 1.0 / self.fire_rate;
                 // 0.6 = barrel height above the tile surface in tile units
                 // (tower model barrel at y~1.0 * tower render scale 0.6).
-                return Some(Projectile::new(self.position, target.get_position(), 15.0, self.get_damage(), 0.6));
+                return Some(Projectile::new(
+                    self.position,
+                    target.get_position(),
+                    15.0,
+                    self.get_damage(),
+                    0.6,
+                ));
             }
         }
 
@@ -139,7 +145,7 @@ impl Tower for BasicTower {
     fn get_upgrade_cost(&self) -> Option<i32> {
         match self.level {
             1 => Some((self.cost / 2) as i32), // 50%
-            2 => Some(self.cost as i32),        // 100%
+            2 => Some(self.cost as i32),       // 100%
             _ => None,
         }
     }
@@ -210,14 +216,13 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_tower_shoots_enemy_in_range() {
         let mut tower = BasicTower::new(Vec2::new(0.0, 0.0));
         let enemies: Vec<Box<dyn Enemy>> = vec![
             Box::new(MockEnemy::new(Vec2::new(3.0, 4.0), 100.0)), // Distance 5.0
         ];
-        
+
         let projectile = tower.update(0.1, &enemies, None, &mut Vec::new());
         assert!(projectile.is_some(), "Tower should shoot at enemy in range");
         assert_eq!(tower.cooldown, 1.0); // Assuming fire_rate is 1.0
@@ -229,38 +234,42 @@ mod tests {
         let enemies: Vec<Box<dyn Enemy>> = vec![
             Box::new(MockEnemy::new(Vec2::new(4.0, 4.0), 100.0)), // Distance ~5.65 > 5.0
         ];
-        
+
         let projectile = tower.update(0.1, &enemies, None, &mut Vec::new());
-        assert!(projectile.is_none(), "Tower should not shoot at enemy out of range");
+        assert!(
+            projectile.is_none(),
+            "Tower should not shoot at enemy out of range"
+        );
         assert_eq!(tower.cooldown, 0.0);
     }
 
     #[test]
     fn test_cooldown_prevents_rapid_fire() {
         let mut tower = BasicTower::new(Vec2::new(0.0, 0.0));
-        let enemies: Vec<Box<dyn Enemy>> = vec![
-            Box::new(MockEnemy::new(Vec2::new(2.0, 0.0), 100.0)),
-        ];
-        
+        let enemies: Vec<Box<dyn Enemy>> =
+            vec![Box::new(MockEnemy::new(Vec2::new(2.0, 0.0), 100.0))];
+
         // First shot
         let projectile1 = tower.update(0.1, &enemies, None, &mut Vec::new());
         assert!(projectile1.is_some());
-        
+
         // Immediate second update (no time passed effectively for cooldown)
         let projectile2 = tower.update(0.1, &enemies, None, &mut Vec::new());
-        assert!(projectile2.is_none(), "Tower should not shoot while on cooldown");
+        assert!(
+            projectile2.is_none(),
+            "Tower should not shoot while on cooldown"
+        );
         assert!(tower.cooldown > 0.0);
     }
-    
+
     #[test]
     fn test_tower_rotation() {
         let mut tower = BasicTower::new(Vec2::new(0.0, 0.0));
-        let enemies: Vec<Box<dyn Enemy>> = vec![
-            Box::new(MockEnemy::new(Vec2::new(0.0, 5.0), 100.0)),
-        ];
-        
+        let enemies: Vec<Box<dyn Enemy>> =
+            vec![Box::new(MockEnemy::new(Vec2::new(0.0, 5.0), 100.0))];
+
         tower.update(0.1, &enemies, None, &mut Vec::new());
-        
+
         // atan2(5.0, 0.0) is PI/2
         use std::f32::consts::PI;
         assert!((tower.rotation - PI / 2.0).abs() < 0.0001);

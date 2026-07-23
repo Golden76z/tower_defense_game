@@ -1,5 +1,5 @@
-use glam::{Vec2, Vec3};
 use crate::renderer::sprite::{Sprite, SpriteAlignment};
+use glam::{Vec2, Vec3};
 
 /// A Linear Congruential Generator (LCG) for fast, allocation-free pseudo-random values.
 pub struct SimpleRng {
@@ -45,6 +45,12 @@ pub struct ParticleSystem {
     rng: SimpleRng,
 }
 
+impl Default for ParticleSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ParticleSystem {
     pub fn new() -> Self {
         Self {
@@ -87,7 +93,7 @@ impl ParticleSystem {
             }
 
             let progress = (1.0 - (p.lifetime / p.max_lifetime)).clamp(0.0, 1.0);
-            
+
             // Lerp size
             let current_size = Vec2::new(
                 p.size_start.x + (p.size_end.x - p.size_start.x) * progress,
@@ -133,7 +139,8 @@ impl ParticleSystem {
                 dir_3d.x * cos_a - dir_3d.z * sin_a,
                 self.rng.next_f32_range(-0.05, 0.15), // some vertical scatter
                 dir_3d.x * sin_a + dir_3d.z * cos_a,
-            ).normalize();
+            )
+            .normalize();
 
             let max_lifetime = self.rng.next_f32_range(0.12, 0.22);
             let size = self.rng.next_f32_range(0.008, 0.015);
@@ -145,7 +152,7 @@ impl ParticleSystem {
                 color_end: [1.0, 0.3, 0.0, 0.0],   // Fades to transparent red
                 size_start: Vec2::new(size, size),
                 size_end: Vec2::new(size * 0.2, size * 0.2),
-                rotation: self.rng.next_f32_range(0.0, 6.28),
+                rotation: self.rng.next_f32_range(0.0, std::f32::consts::TAU),
                 rotation_speed: self.rng.next_f32_range(-4.0, 4.0),
                 lifetime: max_lifetime,
                 max_lifetime,
@@ -173,7 +180,7 @@ impl ParticleSystem {
                 color_end: [0.3, 0.3, 0.3, 0.0],
                 size_start: Vec2::new(start_size, start_size),
                 size_end: Vec2::new(start_size * 2.0, start_size * 2.0),
-                rotation: self.rng.next_f32_range(0.0, 6.28),
+                rotation: self.rng.next_f32_range(0.0, std::f32::consts::TAU),
                 rotation_speed: self.rng.next_f32_range(-1.0, 1.0),
                 lifetime: max_lifetime,
                 max_lifetime,
@@ -188,14 +195,15 @@ impl ParticleSystem {
         let fire_count = self.rng.next_f32_range(16.0, 22.0) as usize;
         for _ in 0..fire_count {
             // Generate a point on a sphere/hemisphere
-            let theta = self.rng.next_f32_range(0.0, 6.28);
-            let phi = self.rng.next_f32_range(0.0, 3.14); // full sphere
+            let theta = self.rng.next_f32_range(0.0, std::f32::consts::TAU);
+            let phi = self.rng.next_f32_range(0.0, std::f32::consts::PI); // full sphere
 
             let vel_dir = Vec3::new(
                 phi.sin() * theta.cos(),
                 phi.sin() * theta.sin().abs() + 0.2, // bias slightly upwards
                 phi.cos(),
-            ).normalize();
+            )
+            .normalize();
 
             let speed = self.rng.next_f32_range(0.3, 0.8);
             let max_lifetime = self.rng.next_f32_range(0.2, 0.4);
@@ -215,7 +223,7 @@ impl ParticleSystem {
                 color_end: col_end,
                 size_start: Vec2::new(size, size),
                 size_end: Vec2::new(size * 0.1, size * 0.1),
-                rotation: self.rng.next_f32_range(0.0, 6.28),
+                rotation: self.rng.next_f32_range(0.0, std::f32::consts::TAU),
                 rotation_speed: self.rng.next_f32_range(-5.0, 5.0),
                 lifetime: max_lifetime,
                 max_lifetime,
@@ -226,7 +234,7 @@ impl ParticleSystem {
         // 2. Thick smoke cloud
         let smoke_count = self.rng.next_f32_range(10.0, 14.0) as usize;
         for _ in 0..smoke_count {
-            let theta = self.rng.next_f32_range(0.0, 6.28);
+            let theta = self.rng.next_f32_range(0.0, std::f32::consts::TAU);
             let vel = Vec3::new(
                 theta.cos() * self.rng.next_f32_range(0.06, 0.15),
                 self.rng.next_f32_range(0.12, 0.27), // rises upwards
@@ -243,7 +251,7 @@ impl ParticleSystem {
                 color_end: [0.15, 0.15, 0.15, 0.0],
                 size_start: Vec2::new(start_size, start_size),
                 size_end: Vec2::new(start_size * 2.2, start_size * 2.2),
-                rotation: self.rng.next_f32_range(0.0, 6.28),
+                rotation: self.rng.next_f32_range(0.0, std::f32::consts::TAU),
                 rotation_speed: self.rng.next_f32_range(-1.5, 1.5),
                 lifetime: max_lifetime,
                 max_lifetime,
@@ -274,7 +282,7 @@ impl ParticleSystem {
             color_end,
             size_start: Vec2::new(size, size),
             size_end: Vec2::new(size * 0.1, size * 0.1),
-            rotation: self.rng.next_f32_range(0.0, 6.28),
+            rotation: self.rng.next_f32_range(0.0, std::f32::consts::TAU),
             rotation_speed: self.rng.next_f32_range(-2.0, 2.0),
             lifetime: max_lifetime,
             max_lifetime,
@@ -286,7 +294,7 @@ impl ParticleSystem {
     pub fn spawn_impact_burst(&mut self, pos: Vec3) {
         let spark_count = self.rng.next_f32_range(4.0, 7.0) as usize;
         for _ in 0..spark_count {
-            let theta = self.rng.next_f32_range(0.0, 6.28);
+            let theta = self.rng.next_f32_range(0.0, std::f32::consts::TAU);
             let vel = Vec3::new(
                 theta.cos() * self.rng.next_f32_range(0.15, 0.4),
                 self.rng.next_f32_range(0.15, 0.4),
@@ -303,7 +311,7 @@ impl ParticleSystem {
                 color_end: [1.0, 0.2, 0.0, 0.0],
                 size_start: Vec2::new(size, size),
                 size_end: Vec2::new(size * 0.1, size * 0.1),
-                rotation: self.rng.next_f32_range(0.0, 6.28),
+                rotation: self.rng.next_f32_range(0.0, std::f32::consts::TAU),
                 rotation_speed: self.rng.next_f32_range(-5.0, 5.0),
                 lifetime: max_lifetime,
                 max_lifetime,
@@ -327,12 +335,12 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         let val1 = rng.next_f32();
         let val2 = rng.next_f32();
-        assert!(val1 >= 0.0 && val1 <= 1.0);
-        assert!(val2 >= 0.0 && val2 <= 1.0);
+        assert!((0.0..=1.0).contains(&val1));
+        assert!((0.0..=1.0).contains(&val2));
         assert_ne!(val1, val2);
 
         let range_val = rng.next_f32_range(10.0, 20.0);
-        assert!(range_val >= 10.0 && range_val <= 20.0);
+        assert!((10.0..=20.0).contains(&range_val));
     }
 
     #[test]
